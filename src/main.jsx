@@ -60,6 +60,22 @@ const DEFAULT_DATA = {
     { id: 1, title: '复习经济法', date: '2026-07-31', time: '19:30', reminder: '提前15分钟' },
     { id: 2, title: '月度复盘', date: '2026-08-02', time: '20:00', reminder: '提前1小时' },
   ],
+  fitnessEntries: [
+    { id: 1, type: '饮食', value: '280 千卡', note: '今日摄入', date: '2026-08-01' },
+    { id: 2, type: '运动', value: '32 分钟', note: '运动时长', date: '2026-08-01' },
+    { id: 3, type: '饮水', value: '1.2 升', note: '饮水', date: '2026-08-01' },
+  ],
+  keepsakes: [
+    { id: 1, title: '相识纪念日', date: '2026-08-29' },
+    { id: 2, title: '生日提醒', date: '2027-01-06' },
+  ],
+  diaryEntries: [
+    { id: 1, date: '2026-08-01', mood: '平静', content: '今天保持专注，完成了一个小目标。' },
+    { id: 2, date: '2026-07-31', mood: '开心', content: '认真生活的一天。' },
+  ],
+  cycleEntries: [
+    { id: 1, startDate: '2026-07-30', cycleLength: 28, note: '当前周期' },
+  ],
 };
 
 function usePersistentData() {
@@ -84,6 +100,44 @@ function getGreeting(date) {
   if (hour >= 5 && hour < 11) return '早安';
   if (hour >= 11 && hour < 18) return '午安';
   return '晚上好';
+}
+
+function toLocalIso(date) {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function getTodayIso() {
+  return toLocalIso(new Date());
+}
+
+function parseLocalDate(value) {
+  return new Date(`${value}T00:00:00`);
+}
+
+function formatDate(value) {
+  return value ? value.replaceAll('-', '/') : '';
+}
+
+function formatCountdown(value) {
+  const days = Math.ceil((parseLocalDate(value) - parseLocalDate(getTodayIso())) / 86_400_000);
+  if (days === 0) return '就是今天';
+  return days > 0 ? `还有 ${days} 天` : `已过去 ${Math.abs(days)} 天`;
+}
+
+function getCycleDay(startDate, cycleLength) {
+  const elapsed = Math.floor((parseLocalDate(getTodayIso()) - parseLocalDate(startDate)) / 86_400_000);
+  if (elapsed < 0) return null;
+  return (elapsed % cycleLength) + 1;
+}
+
+function getNextCycleDate(startDate, cycleLength) {
+  const start = parseLocalDate(startDate);
+  const elapsed = Math.max(0, Math.floor((parseLocalDate(getTodayIso()) - start) / 86_400_000));
+  const cycles = Math.floor(elapsed / cycleLength) + 1;
+  const next = new Date(start);
+  next.setDate(next.getDate() + cycles * cycleLength);
+  return toLocalIso(next);
 }
 
 function App() {
@@ -142,11 +196,11 @@ function App() {
     home: <HomePage {...pageProps} />,
     tasks: <TasksPage {...pageProps} />,
     accounts: <AccountsPage {...pageProps} />,
-    fitness: <SimpleModule title="减脂记录" icon={Dumbbell} color="blue" rows={[['今日摄入', '280 千卡'], ['运动时长', '32 分钟'], ['饮水', '1.2 升']]} />,
+    fitness: <FitnessPage {...pageProps} />,
     schedule: <SchedulePage {...pageProps} />,
-    keepsakes: <SimpleModule title="纪念日" icon={Gift} color="lavender" rows={[['相识纪念日', '还有 28 天'], ['生日提醒', '还有 158 天']]} />,
-    diary: <SimpleModule title="心情日记" icon={BookHeart} color="peach" rows={[['今天', '平静、专注'], ['昨天', '完成了一个小目标']]} />,
-    cycle: <SimpleModule title="周期记录" icon={Moon} color="sky" rows={[['当前周期', '第 3 天'], ['下次预计', '8 月 27 日']]} />,
+    keepsakes: <KeepsakesPage {...pageProps} />,
+    diary: <DiaryPage {...pageProps} />,
+    cycle: <CyclePage {...pageProps} />,
     settings: <SettingsPage {...pageProps} />,
   };
 
@@ -344,6 +398,131 @@ function SchedulePage({ data, setData, notify }) {
   );
 }
 
+function FitnessPage({ data, setData, notify }) {
+  const [type, setType] = useState('饮食');
+  const [date, setDate] = useState(getTodayIso);
+  const [value, setValue] = useState('');
+  const [note, setNote] = useState('');
+  const emoji = { 饮食: '🍜', 运动: '🏃', 饮水: '💧', 体重: '⚖️' };
+  const addEntry = (event) => {
+    event.preventDefault();
+    if (!value.trim()) return;
+    const entry = { id: Date.now(), type, date, value: value.trim(), note: note.trim() };
+    setData((current) => ({ ...current, fitnessEntries: [entry, ...current.fitnessEntries] }));
+    setValue(''); setNote(''); notify('减脂记录已保存');
+  };
+  const remove = (id) => setData((current) => ({ ...current, fitnessEntries: current.fitnessEntries.filter((item) => item.id !== id) }));
+  return (
+    <section className="page">
+      <PageHeader title="减脂记录" icon={Dumbbell} />
+      <form className="entry-form panel" onSubmit={addEntry}>
+        <label><span>记录类型</span><select value={type} onChange={(event) => setType(event.target.value)} aria-label="减脂记录类型"><option>饮食</option><option>运动</option><option>饮水</option><option>体重</option></select></label>
+        <label><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="减脂记录日期" required /></label>
+        <label><span>数值</span><input value={value} onChange={(event) => setValue(event.target.value)} placeholder="例如：350 千卡、45 分钟" aria-label="减脂记录数值" required /></label>
+        <label><span>备注</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="可选" aria-label="减脂记录备注" /></label>
+        <button className="primary-button wide" type="submit"><Plus size={20} />保存记录</button>
+      </form>
+      <h2 className="section-title">历史记录</h2>
+      <div className="module-record-list panel">
+        {data.fitnessEntries.length ? data.fitnessEntries.map((item) => <ModuleRecord key={item.id} icon={emoji[item.type] ?? '📝'} title={item.type} detail={`${formatDate(item.date)}${item.note ? ` · ${item.note}` : ''}`} value={item.value} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有减脂记录</p>}
+      </div>
+    </section>
+  );
+}
+
+function KeepsakesPage({ data, setData, notify }) {
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState(getTodayIso);
+  const addKeepsake = (event) => {
+    event.preventDefault();
+    if (!title.trim()) return;
+    const keepsake = { id: Date.now(), title: title.trim(), date };
+    setData((current) => ({ ...current, keepsakes: [keepsake, ...current.keepsakes] }));
+    setTitle(''); notify('纪念日已保存');
+  };
+  const remove = (id) => setData((current) => ({ ...current, keepsakes: current.keepsakes.filter((item) => item.id !== id) }));
+  return (
+    <section className="page">
+      <PageHeader title="纪念日" icon={Gift} />
+      <form className="entry-form panel" onSubmit={addKeepsake}>
+        <label><span>纪念日名称</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：入职纪念日" aria-label="纪念日名称" required /></label>
+        <label><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="纪念日日期" required /></label>
+        <button className="primary-button wide" type="submit"><Plus size={20} />新增纪念日</button>
+      </form>
+      <h2 className="section-title">我的纪念日</h2>
+      <div className="module-record-list panel">
+        {data.keepsakes.length ? data.keepsakes.map((item) => <ModuleRecord key={item.id} icon="🎁" title={item.title} detail={formatDate(item.date)} value={formatCountdown(item.date)} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有纪念日</p>}
+      </div>
+    </section>
+  );
+}
+
+function DiaryPage({ data, setData, notify }) {
+  const [date, setDate] = useState(getTodayIso);
+  const [mood, setMood] = useState('平静');
+  const [content, setContent] = useState('');
+  const addDiary = (event) => {
+    event.preventDefault();
+    if (!content.trim()) return;
+    const entry = { id: Date.now(), date, mood, content: content.trim() };
+    setData((current) => ({ ...current, diaryEntries: [entry, ...current.diaryEntries] }));
+    setContent(''); notify('日记已保存');
+  };
+  const remove = (id) => setData((current) => ({ ...current, diaryEntries: current.diaryEntries.filter((item) => item.id !== id) }));
+  return (
+    <section className="page">
+      <PageHeader title="心情日记" icon={BookHeart} />
+      <form className="entry-form panel" onSubmit={addDiary}>
+        <label><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="日记日期" required /></label>
+        <label><span>今天的心情</span><select value={mood} onChange={(event) => setMood(event.target.value)} aria-label="日记心情"><option>开心</option><option>平静</option><option>充实</option><option>疲惫</option><option>难过</option></select></label>
+        <label className="wide"><span>日记内容</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="记录今天发生的事情" aria-label="日记内容" required /></label>
+        <button className="primary-button wide" type="submit"><Plus size={20} />保存日记</button>
+      </form>
+      <h2 className="section-title">日记记录</h2>
+      <div className="module-record-list panel">
+        {data.diaryEntries.length ? data.diaryEntries.map((item) => <ModuleRecord key={item.id} icon="📖" title={formatDate(item.date)} detail={item.content} value={item.mood} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有日记</p>}
+      </div>
+    </section>
+  );
+}
+
+function CyclePage({ data, setData, notify }) {
+  const [startDate, setStartDate] = useState(getTodayIso);
+  const [cycleLength, setCycleLength] = useState('28');
+  const [note, setNote] = useState('');
+  const addCycle = (event) => {
+    event.preventDefault();
+    const length = Number(cycleLength);
+    if (!Number.isInteger(length) || length < 20 || length > 45) return;
+    const entry = { id: Date.now(), startDate, cycleLength: length, note: note.trim() };
+    setData((current) => ({ ...current, cycleEntries: [entry, ...current.cycleEntries] }));
+    setNote(''); notify('经期记录已保存');
+  };
+  const remove = (id) => setData((current) => ({ ...current, cycleEntries: current.cycleEntries.filter((item) => item.id !== id) }));
+  return (
+    <section className="page">
+      <PageHeader title="周期记录" icon={Moon} />
+      <form className="entry-form panel" onSubmit={addCycle}>
+        <label><span>开始日期</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} aria-label="经期开始日期" required /></label>
+        <label><span>周期天数</span><input type="number" min="20" max="45" value={cycleLength} onChange={(event) => setCycleLength(event.target.value)} aria-label="周期天数" required /></label>
+        <label className="wide"><span>备注</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：状态正常" aria-label="经期备注" /></label>
+        <button className="primary-button wide" type="submit"><Plus size={20} />保存周期</button>
+      </form>
+      <h2 className="section-title">周期历史</h2>
+      <div className="module-record-list panel">
+        {data.cycleEntries.length ? data.cycleEntries.map((item) => {
+          const day = getCycleDay(item.startDate, item.cycleLength);
+          return <ModuleRecord key={item.id} icon="🌙" title={item.note || '经期记录'} detail={`开始于 ${formatDate(item.startDate)} · ${item.cycleLength} 天周期`} value={<><strong>{day ? `第 ${day} 天` : '尚未开始'}</strong><small>下次预计 {formatDate(getNextCycleDate(item.startDate, item.cycleLength))}</small></>} onRemove={() => remove(item.id)} />;
+        }) : <p className="module-empty">还没有经期记录</p>}
+      </div>
+    </section>
+  );
+}
+
+function ModuleRecord({ icon, title, detail, value, onRemove }) {
+  return <div className="module-record-row"><span className="module-record-icon" aria-hidden="true">{icon}</span><div className="module-record-copy"><strong>{title}</strong><span>{detail}</span></div><div className="module-record-value">{value}</div><button type="button" className="icon-button delete" onClick={onRemove} aria-label={`删除${title}`}><Trash2 size={18} /></button></div>;
+}
+
 function SettingsPage({ data, setData, notify, installApp, canInstall, isInstalled }) {
   const updateProfile = (patch) => setData((current) => ({ ...current, profile: { ...current.profile, ...patch } }));
   const exportData = () => {
@@ -382,10 +561,6 @@ function Toggle({ checked, onChange, label }) {
 
 function SettingRow({ icon: Icon, title, detail, tone, children }) {
   return <div className="setting-row"><span className={`setting-icon tone-${tone}`}><Icon size={21} /></span><div><strong>{title}</strong><small>{detail}</small></div>{children}</div>;
-}
-
-function SimpleModule({ title, icon: Icon, color, rows }) {
-  return <section className="page"><PageHeader title={title} icon={Icon} /><div className="simple-summary panel"><div className={`module-illustration tone-${color}`}><Icon size={42} /></div>{rows.map(([label, value]) => <div className="summary-row" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></section>;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);
