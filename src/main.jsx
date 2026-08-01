@@ -449,6 +449,7 @@ function FitnessPage({ data, setData, notify }) {
   const [date, setDate] = useState(getTodayIso);
   const [value, setValue] = useState('');
   const [note, setNote] = useState('');
+  const [editing, setEditing] = useState(null);
   const emoji = { 饮食: '🍜', 运动: '🏃', 饮水: '💧', 体重: '⚖️' };
   const addEntry = (event) => {
     event.preventDefault();
@@ -456,6 +457,12 @@ function FitnessPage({ data, setData, notify }) {
     const entry = { id: Date.now(), type, date, value: value.trim(), note: note.trim() };
     setData((current) => ({ ...current, fitnessEntries: [entry, ...current.fitnessEntries] }));
     setValue(''); setNote(''); notify('减脂记录已保存');
+  };
+  const saveEdit = (event) => {
+    event.preventDefault();
+    if (!editing.value.trim()) return;
+    setData((current) => ({ ...current, fitnessEntries: current.fitnessEntries.map((item) => item.id === editing.id ? { ...editing, value: editing.value.trim(), note: editing.note.trim() } : item) }));
+    setEditing(null); notify('减脂记录已更新');
   };
   const remove = (id) => setData((current) => ({ ...current, fitnessEntries: current.fitnessEntries.filter((item) => item.id !== id) }));
   return (
@@ -470,7 +477,15 @@ function FitnessPage({ data, setData, notify }) {
       </form>
       <h2 className="section-title">历史记录</h2>
       <div className="module-record-list panel">
-        {data.fitnessEntries.length ? data.fitnessEntries.map((item) => <ModuleRecord key={item.id} icon={emoji[item.type] ?? '📝'} title={item.type} detail={`${formatDate(item.date)}${item.note ? ` · ${item.note}` : ''}`} value={item.value} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有减脂记录</p>}
+        {data.fitnessEntries.length ? data.fitnessEntries.map((item) => editing?.id === item.id ? (
+          <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
+            <label><span>记录类型</span><select value={editing.type} onChange={(event) => setEditing({ ...editing, type: event.target.value })} aria-label="编辑减脂记录类型"><option>饮食</option><option>运动</option><option>饮水</option><option>体重</option></select></label>
+            <label><span>日期</span><input type="date" value={editing.date} onChange={(event) => setEditing({ ...editing, date: event.target.value })} aria-label="编辑减脂记录日期" required /></label>
+            <label><span>数值</span><input value={editing.value} onChange={(event) => setEditing({ ...editing, value: event.target.value })} aria-label="编辑减脂记录数值" required /></label>
+            <label><span>备注</span><input value={editing.note} onChange={(event) => setEditing({ ...editing, note: event.target.value })} aria-label="编辑减脂记录备注" /></label>
+            <EditActions onCancel={() => setEditing(null)} />
+          </form>
+        ) : <ModuleRecord key={item.id} icon={emoji[item.type] ?? '📝'} title={item.type} detail={`${formatDate(item.date)}${item.note ? ` · ${item.note}` : ''}`} value={item.value} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有减脂记录</p>}
       </div>
     </section>
   );
@@ -479,12 +494,19 @@ function FitnessPage({ data, setData, notify }) {
 function KeepsakesPage({ data, setData, notify }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(getTodayIso);
+  const [editing, setEditing] = useState(null);
   const addKeepsake = (event) => {
     event.preventDefault();
     if (!title.trim()) return;
     const keepsake = { id: Date.now(), title: title.trim(), date };
     setData((current) => ({ ...current, keepsakes: [keepsake, ...current.keepsakes] }));
     setTitle(''); notify('纪念日已保存');
+  };
+  const saveEdit = (event) => {
+    event.preventDefault();
+    if (!editing.title.trim()) return;
+    setData((current) => ({ ...current, keepsakes: current.keepsakes.map((item) => item.id === editing.id ? { ...editing, title: editing.title.trim() } : item) }));
+    setEditing(null); notify('纪念日已更新');
   };
   const remove = (id) => setData((current) => ({ ...current, keepsakes: current.keepsakes.filter((item) => item.id !== id) }));
   return (
@@ -497,7 +519,13 @@ function KeepsakesPage({ data, setData, notify }) {
       </form>
       <h2 className="section-title">我的纪念日</h2>
       <div className="module-record-list panel">
-        {data.keepsakes.length ? data.keepsakes.map((item) => <ModuleRecord key={item.id} icon="🎁" title={item.title} detail={formatDate(item.date)} value={formatCountdown(item.date)} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有纪念日</p>}
+        {data.keepsakes.length ? data.keepsakes.map((item) => editing?.id === item.id ? (
+          <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
+            <label><span>纪念日名称</span><input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} aria-label="编辑纪念日名称" required /></label>
+            <label><span>日期</span><input type="date" value={editing.date} onChange={(event) => setEditing({ ...editing, date: event.target.value })} aria-label="编辑纪念日日期" required /></label>
+            <EditActions onCancel={() => setEditing(null)} />
+          </form>
+        ) : <ModuleRecord key={item.id} icon="🎁" title={item.title} detail={formatDate(item.date)} value={formatCountdown(item.date)} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有纪念日</p>}
       </div>
     </section>
   );
@@ -507,12 +535,19 @@ function DiaryPage({ data, setData, notify }) {
   const [date, setDate] = useState(getTodayIso);
   const [mood, setMood] = useState('平静');
   const [content, setContent] = useState('');
+  const [editing, setEditing] = useState(null);
   const addDiary = (event) => {
     event.preventDefault();
     if (!content.trim()) return;
     const entry = { id: Date.now(), date, mood, content: content.trim() };
     setData((current) => ({ ...current, diaryEntries: [entry, ...current.diaryEntries] }));
     setContent(''); notify('日记已保存');
+  };
+  const saveEdit = (event) => {
+    event.preventDefault();
+    if (!editing.content.trim()) return;
+    setData((current) => ({ ...current, diaryEntries: current.diaryEntries.map((item) => item.id === editing.id ? { ...editing, content: editing.content.trim() } : item) }));
+    setEditing(null); notify('日记已更新');
   };
   const remove = (id) => setData((current) => ({ ...current, diaryEntries: current.diaryEntries.filter((item) => item.id !== id) }));
   return (
@@ -526,7 +561,14 @@ function DiaryPage({ data, setData, notify }) {
       </form>
       <h2 className="section-title">日记记录</h2>
       <div className="module-record-list panel">
-        {data.diaryEntries.length ? data.diaryEntries.map((item) => <ModuleRecord key={item.id} icon="📖" title={formatDate(item.date)} detail={item.content} value={item.mood} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有日记</p>}
+        {data.diaryEntries.length ? data.diaryEntries.map((item) => editing?.id === item.id ? (
+          <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
+            <label><span>日期</span><input type="date" value={editing.date} onChange={(event) => setEditing({ ...editing, date: event.target.value })} aria-label="编辑日记日期" required /></label>
+            <label><span>心情</span><select value={editing.mood} onChange={(event) => setEditing({ ...editing, mood: event.target.value })} aria-label="编辑日记心情"><option>开心</option><option>平静</option><option>充实</option><option>疲惫</option><option>难过</option></select></label>
+            <label className="wide"><span>日记内容</span><textarea value={editing.content} onChange={(event) => setEditing({ ...editing, content: event.target.value })} aria-label="编辑日记内容" required /></label>
+            <EditActions onCancel={() => setEditing(null)} />
+          </form>
+        ) : <ModuleRecord key={item.id} icon="📖" title={formatDate(item.date)} detail={item.content} value={item.mood} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有日记</p>}
       </div>
     </section>
   );
@@ -536,6 +578,7 @@ function CyclePage({ data, setData, notify }) {
   const [startDate, setStartDate] = useState(getTodayIso);
   const [cycleLength, setCycleLength] = useState('28');
   const [note, setNote] = useState('');
+  const [editing, setEditing] = useState(null);
   const addCycle = (event) => {
     event.preventDefault();
     const length = Number(cycleLength);
@@ -543,6 +586,13 @@ function CyclePage({ data, setData, notify }) {
     const entry = { id: Date.now(), startDate, cycleLength: length, note: note.trim() };
     setData((current) => ({ ...current, cycleEntries: [entry, ...current.cycleEntries] }));
     setNote(''); notify('经期记录已保存');
+  };
+  const saveEdit = (event) => {
+    event.preventDefault();
+    const length = Number(editing.cycleLength);
+    if (!Number.isInteger(length) || length < 20 || length > 45) return;
+    setData((current) => ({ ...current, cycleEntries: current.cycleEntries.map((item) => item.id === editing.id ? { ...editing, cycleLength: length, note: editing.note.trim() } : item) }));
+    setEditing(null); notify('经期记录已更新');
   };
   const remove = (id) => setData((current) => ({ ...current, cycleEntries: current.cycleEntries.filter((item) => item.id !== id) }));
   return (
@@ -557,16 +607,28 @@ function CyclePage({ data, setData, notify }) {
       <h2 className="section-title">周期历史</h2>
       <div className="module-record-list panel">
         {data.cycleEntries.length ? data.cycleEntries.map((item) => {
+          if (editing?.id === item.id) return (
+            <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
+              <label><span>开始日期</span><input type="date" value={editing.startDate} onChange={(event) => setEditing({ ...editing, startDate: event.target.value })} aria-label="编辑经期开始日期" required /></label>
+              <label><span>周期天数</span><input type="number" min="20" max="45" value={editing.cycleLength} onChange={(event) => setEditing({ ...editing, cycleLength: event.target.value })} aria-label="编辑周期天数" required /></label>
+              <label className="wide"><span>备注</span><input value={editing.note} onChange={(event) => setEditing({ ...editing, note: event.target.value })} aria-label="编辑经期备注" /></label>
+              <EditActions onCancel={() => setEditing(null)} />
+            </form>
+          );
           const day = getCycleDay(item.startDate, item.cycleLength);
-          return <ModuleRecord key={item.id} icon="🌙" title={item.note || '经期记录'} detail={`开始于 ${formatDate(item.startDate)} · ${item.cycleLength} 天周期`} value={<><strong>{day ? `第 ${day} 天` : '尚未开始'}</strong><small>下次预计 {formatDate(getNextCycleDate(item.startDate, item.cycleLength))}</small></>} onRemove={() => remove(item.id)} />;
+          return <ModuleRecord key={item.id} icon="🌙" title={item.note || '经期记录'} detail={`开始于 ${formatDate(item.startDate)} · ${item.cycleLength} 天周期`} value={<><strong>{day ? `第 ${day} 天` : '尚未开始'}</strong><small>下次预计 {formatDate(getNextCycleDate(item.startDate, item.cycleLength))}</small></>} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />;
         }) : <p className="module-empty">还没有经期记录</p>}
       </div>
     </section>
   );
 }
 
-function ModuleRecord({ icon, title, detail, value, onRemove }) {
-  return <div className="module-record-row"><span className="module-record-icon" aria-hidden="true">{icon}</span><div className="module-record-copy"><strong>{title}</strong><span>{detail}</span></div><div className="module-record-value">{value}</div><button type="button" className="icon-button delete" onClick={onRemove} aria-label={`删除${title}`}><Trash2 size={18} /></button></div>;
+function EditActions({ onCancel }) {
+  return <div className="record-edit-actions"><button className="primary-button" type="submit"><Check size={18} />保存</button><button className="secondary-button" type="button" onClick={onCancel}><X size={18} />取消</button></div>;
+}
+
+function ModuleRecord({ icon, title, detail, value, onEdit, onRemove }) {
+  return <div className="module-record-row"><span className="module-record-icon" aria-hidden="true">{icon}</span><div className="module-record-copy"><strong>{title}</strong><span>{detail}</span></div><div className="module-record-value">{value}</div><div className="module-record-actions"><button type="button" className="icon-button" onClick={onEdit} aria-label={`编辑${title}`}><Pencil size={17} /></button><button type="button" className="icon-button delete" onClick={onRemove} aria-label={`删除${title}`}><Trash2 size={18} /></button></div></div>;
 }
 
 function SettingsPage({ data, setData, notify, installApp, canInstall, isInstalled }) {
