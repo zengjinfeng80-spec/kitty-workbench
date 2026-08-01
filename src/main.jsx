@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import {
@@ -20,6 +20,7 @@ import {
   Sparkles,
   SunMedium,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import './styles.css';
@@ -631,12 +632,78 @@ function ModuleRecord({ icon, title, detail, value, onEdit, onRemove }) {
   return <div className="module-record-row"><span className="module-record-icon" aria-hidden="true">{icon}</span><div className="module-record-copy"><strong>{title}</strong><span>{detail}</span></div><div className="module-record-value">{value}</div><div className="module-record-actions"><button type="button" className="icon-button" onClick={onEdit} aria-label={`编辑${title}`}><Pencil size={17} /></button><button type="button" className="icon-button delete" onClick={onRemove} aria-label={`删除${title}`}><Trash2 size={18} /></button></div></div>;
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function toExcelDate(value) {
+  return value ? new Date(`${value}T00:00:00Z`) : null;
+}
+
+function createExcelSheet(columns, rows) {
+  const header = columns.map((column) => ({ value: column.header, fontWeight: 'bold', textColor: '#ffffff', backgroundColor: '#f25f95', height: 24 }));
+  return [header, ...rows.map((row) => columns.map((column) => ({ value: row[column.key] ?? '', type: column.type, format: column.format, wrap: true })))];
+}
+
 function SettingsPage({ data, setData, notify, installApp, canInstall, isInstalled }) {
+  const backupInputRef = useRef(null);
   const updateProfile = (patch) => setData((current) => ({ ...current, profile: { ...current.profile, ...patch } }));
-  const exportData = () => {
+  const exportBackup = () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'Kitty工作台数据.json'; anchor.click(); URL.revokeObjectURL(url); notify('数据已导出');
+    downloadBlob(blob, `Kitty工作台完整备份-${getTodayIso()}.json`);
+    notify('完整数据备份已导出');
+  };
+  const exportExcel = async () => {
+    const { default: writeXlsxFile } = await import('write-excel-file/browser');
+    const sheets = [];
+    const addSheet = (name, columns, rows) => {
+      sheets.push({ data: createExcelSheet(columns, rows), sheet: name, columns: columns.map((column) => ({ width: column.width })), stickyRowsCount: 1 });
+    };
+    addSheet('待办', [
+      { header: '内容', key: 'text', width: 34 }, { header: '状态', key: 'status', width: 14 },
+    ], data.tasks.map((item) => ({ text: item.text, status: item.done ? '已完成' : '未完成' })));
+    addSheet('记账', [
+      { header: '记录时间', key: 'time', width: 20 }, { header: '分类', key: 'category', width: 14 }, { header: '金额', key: 'amount', width: 14, type: Number, format: '¥#,##0.00' }, { header: '备注', key: 'note', width: 32 },
+    ], data.records.map((item) => ({ time: item.time, category: item.category, amount: item.amount, note: item.note })));
+    addSheet('减脂', [
+      { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '类型', key: 'type', width: 14 }, { header: '数值', key: 'value', width: 18 }, { header: '备注', key: 'note', width: 32 },
+    ], data.fitnessEntries.map((item) => ({ date: toExcelDate(item.date), type: item.type, value: item.value, note: item.note })));
+    addSheet('日程', [
+      { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '时间', key: 'time', width: 12 }, { header: '内容', key: 'title', width: 32 }, { header: '提醒', key: 'reminder', width: 18 },
+    ], data.events.map((item) => ({ date: toExcelDate(item.date), time: item.time, title: item.title, reminder: item.reminder })));
+    addSheet('纪念', [
+      { header: '名称', key: 'title', width: 32 }, { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '倒计时', key: 'countdown', width: 18 },
+    ], data.keepsakes.map((item) => ({ title: item.title, date: toExcelDate(item.date), countdown: formatCountdown(item.date) })));
+    addSheet('日记', [
+      { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '心情', key: 'mood', width: 14 }, { header: '日记内容', key: 'content', width: 54 },
+    ], data.diaryEntries.map((item) => ({ date: toExcelDate(item.date), mood: item.mood, content: item.content })));
+    addSheet('经期', [
+      { header: '开始日期', key: 'startDate', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '周期天数', key: 'cycleLength', width: 14, type: Number }, { header: '备注', key: 'note', width: 32 }, { header: '下次预计', key: 'nextDate', width: 14, type: Date, format: 'yyyy-mm-dd' },
+    ], data.cycleEntries.map((item) => ({ startDate: toExcelDate(item.startDate), cycleLength: item.cycleLength, note: item.note, nextDate: toExcelDate(getNextCycleDate(item.startDate, item.cycleLength)) })));
+    await writeXlsxFile(sheets).toFile(`Kitty工作台记录-${getTodayIso()}.xlsx`);
+    notify('Excel 表格已导出');
+  };
+  const restoreBackup = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const restored = JSON.parse(await file.text());
+      const listKeys = ['tasks', 'records', 'events', 'fitnessEntries', 'keepsakes', 'diaryEntries', 'cycleEntries'];
+      const isValid = restored && typeof restored === 'object' && restored.profile && listKeys.every((key) => Array.isArray(restored[key]));
+      if (!isValid) throw new Error('invalid backup');
+      if (!window.confirm('恢复备份会覆盖当前工作台的全部数据，确定继续吗？')) return;
+      setData({ ...DEFAULT_DATA, ...restored, profile: { ...DEFAULT_DATA.profile, ...restored.profile } });
+      notify('完整数据已恢复');
+    } catch {
+      notify('备份文件无法识别');
+    } finally {
+      event.target.value = '';
+    }
   };
   return (
     <section className="page">
@@ -655,7 +722,10 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
         </button>
         <SettingRow icon={SunMedium} title="消息提醒" detail="待办、日程到期提醒" tone="pink"><Toggle checked={data.profile.reminders} onChange={(checked) => updateProfile({ reminders: checked })} label="消息提醒" /></SettingRow>
         <SettingRow icon={Moon} title="深色模式" detail="夜间使用更舒适" tone="yellow"><Toggle checked={data.profile.dark} onChange={(checked) => updateProfile({ dark: checked })} label="深色模式" /></SettingRow>
-        <button className="settings-button" onClick={exportData}><span className="setting-icon tone-blue"><CloudDownload size={21} /></span><span><strong>数据备份</strong><small>导出所有记录数据</small></span><ChevronRight size={20} /></button>
+        <button className="settings-button" onClick={exportExcel}><span className="setting-icon tone-blue"><CloudDownload size={21} /></span><span><strong>导出 Excel 表格</strong><small>按模块生成工作表，方便查看、统计和打印</small></span><ChevronRight size={20} /></button>
+        <button className="settings-button" onClick={exportBackup}><span className="setting-icon tone-mint"><CloudDownload size={21} /></span><span><strong>完整数据备份</strong><small>导出 JSON 文件，用于保留工作台全部数据</small></span><ChevronRight size={20} /></button>
+        <button className="settings-button" onClick={() => backupInputRef.current?.click()}><span className="setting-icon tone-yellow"><Upload size={21} /></span><span><strong>从备份恢复</strong><small>选择完整备份文件，恢复工作台全部数据</small></span><ChevronRight size={20} /></button>
+        <input ref={backupInputRef} className="visually-hidden" type="file" accept="application/json,.json" onChange={restoreBackup} aria-label="选择完整备份文件" />
         <div className="settings-button static"><span className="setting-icon tone-gray"><Info size={21} /></span><span><strong>关于</strong><small>Hello Kitty 工作台 v1.0</small></span></div>
       </section>
       <p className="made-with">Made with <span>💖</span> for {data.profile.nickname}<br />Hello Kitty © Sanrio</p>
