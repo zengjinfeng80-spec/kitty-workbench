@@ -60,7 +60,7 @@ export function createSyncEngine({ client, userId, deviceId }) {
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', migrationId);
     assertNoError(completeError);
-    return records;
+    return pull();
   }
 
   return { pull, push, sync, migrate, enqueue: (records) => enqueueChanges(userId, records) };

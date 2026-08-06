@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { countLocalRecords, createChangeSet, recordsToWorkbench } from '../sync/data-model.js';
 import { getDeviceId } from '../sync/device.js';
-import { loadAccountRecords, readPendingChanges, saveAccountRecords, setMetadata } from '../sync/indexed-db.js';
+import { loadAccountRecords, readPendingChanges, saveAccountRecords } from '../sync/indexed-db.js';
 import { createSyncEngine } from '../sync/sync-engine.js';
 import { isSupabaseConfigured, supabase } from '../supabase/client.js';
 
@@ -61,7 +61,15 @@ export function useAccountSync({ localData, defaults, notify }) {
   }, []);
 
   useEffect(() => {
-    if (!session) { engineRef.current = null; migrationDecisionRef.current = false; return; }
+    const blankData = emptyAccountData(defaults);
+    if (!session) {
+      engineRef.current = null;
+      migrationDecisionRef.current = false;
+      dataRef.current = blankData;
+      setAccountDataState(blankData);
+      setMigration((current) => ({ ...current, open: false, busy: false, error: '' }));
+      return;
+    }
     let cancelled = false;
     (async () => {
       const userId = session.user.id;
@@ -70,7 +78,10 @@ export function useAccountSync({ localData, defaults, notify }) {
       const cached = await loadAccountRecords(userId);
       if (cancelled) return;
       if (cached.length) await applyRecords(cached);
-      else setAccountDataState(emptyAccountData(defaults));
+      else {
+        dataRef.current = blankData;
+        setAccountDataState(blankData);
+      }
       const decision = localStorage.getItem(`kitty-migration-decision:${userId}`);
       if (!decision && countLocalRecords(localData).total > 0) {
         setMigration({ open: true, busy: false, error: '', counts: countLocalRecords(localData) });

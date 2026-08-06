@@ -70,4 +70,23 @@ describe('同步引擎', () => {
     expect(upsert).toHaveBeenCalledTimes(1);
     expect(updateEq).toHaveBeenCalledWith('id', 'migration-a');
   });
+
+  it('迁移完成后拉取并合并账号原有云端记录', async () => {
+    const remoteRecord = {
+      id: 'remote-a', user_id: 'user-a', record_type: 'task',
+      payload: { id: 2, text: '另一台设备', done: false },
+      updated_at: '2026-08-06T02:00:00.000Z', deleted_at: null,
+    };
+    const { client } = createClient({ remote: [remoteRecord] });
+    const data = {
+      profile: { nickname: '小樱' }, tasks: [{ id: 1, text: '本机记录', done: false }], records: [], events: [],
+      fitnessEntries: [], keepsakes: [], diaryEntries: [], cycleEntries: [],
+    };
+    const engine = createSyncEngine({ client, userId: 'user-a', deviceId: 'device-a' });
+
+    const merged = await engine.migrate(data, 'migration-a');
+
+    expect(merged).toContainEqual(remoteRecord);
+    expect(merged.some((record) => record.payload?.text === '本机记录')).toBe(true);
+  });
 });
