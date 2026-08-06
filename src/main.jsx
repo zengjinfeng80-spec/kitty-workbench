@@ -34,6 +34,10 @@ import kittyDiary from './assets/kitty/diary.png';
 import kittyCycle from './assets/kitty/cycle.png';
 import kittySettings from './assets/kitty/settings.png';
 import kittyHero from './assets/kitty/hero.png';
+import { AccountSyncCard } from './account/AccountSyncCard.jsx';
+import { LoginDialog } from './account/LoginDialog.jsx';
+import { MigrationDialog } from './account/MigrationDialog.jsx';
+import { useAccountSync } from './account/use-account-sync.js';
 
 const NAV_ITEMS = [
   { id: 'home', label: '桌面', image: kittyHome },
@@ -145,10 +149,20 @@ function getNextCycleDate(startDate, cycleLength) {
 
 function App() {
   const [active, setActive] = useState('home');
-  const [data, setData] = usePersistentData();
+  const [localData, setLocalData] = usePersistentData();
   const [toast, setToast] = useState('');
+  const [loginOpen, setLoginOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isInstalled, setIsInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches);
+
+  const notify = (message) => {
+    setToast(message);
+    window.setTimeout(() => setToast(''), 2200);
+  };
+
+  const account = useAccountSync({ localData, defaults: DEFAULT_DATA, notify });
+  const data = account.data;
+  const setData = account.setData ?? setLocalData;
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
@@ -179,11 +193,6 @@ function App() {
     };
   }, []);
 
-  const notify = (message) => {
-    setToast(message);
-    window.setTimeout(() => setToast(''), 2200);
-  };
-
   const installApp = async () => {
     if (!installPrompt) return;
     await installPrompt.prompt();
@@ -194,7 +203,7 @@ function App() {
     }
   };
 
-  const pageProps = { data, setData, notify, setActive, installApp, canInstall: Boolean(installPrompt), isInstalled };
+  const pageProps = { data, setData, notify, setActive, installApp, canInstall: Boolean(installPrompt), isInstalled, account, openLogin: () => setLoginOpen(true) };
   const pages = {
     home: <HomePage {...pageProps} />,
     tasks: <TasksPage {...pageProps} />,
@@ -217,6 +226,8 @@ function App() {
         <button onClick={() => updateServiceWorker(true)}>立即更新</button>
         <button className="update-later" onClick={() => setNeedRefresh(false)}>稍后</button>
       </div>}
+      <LoginDialog open={loginOpen} onClose={() => setLoginOpen(false)} onSendCode={account.sendCode} onVerifyCode={account.verifyCode} />
+      <MigrationDialog migration={account.migration} onConfirm={account.confirmMigration} onDismiss={account.dismissMigration} />
     </div>
   );
 }
@@ -650,7 +661,7 @@ function createExcelSheet(columns, rows) {
   return [header, ...rows.map((row) => columns.map((column) => ({ value: row[column.key] ?? '', type: column.type, format: column.format, wrap: true })))];
 }
 
-function SettingsPage({ data, setData, notify, installApp, canInstall, isInstalled }) {
+function SettingsPage({ data, setData, notify, installApp, canInstall, isInstalled, account, openLogin }) {
   const backupInputRef = useRef(null);
   const updateProfile = (patch) => setData((current) => ({ ...current, profile: { ...current.profile, ...patch } }));
   const exportBackup = () => {
@@ -708,6 +719,7 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
   return (
     <section className="page">
       <PageHeader title="设置" icon={Settings} />
+      <AccountSyncCard account={account} onOpenLogin={openLogin} onSync={account.syncNow} onSignOut={account.signOut} />
       <section className="settings-card panel">
         <h2><img className="heading-kitty" src={kittyHero} alt="" />个人信息</h2>
         <div className="profile-row"><div className="avatar"><img src={kittyHero} alt="" /></div><div><strong>{data.profile.nickname}</strong><span>Hello Kitty 工作台</span></div></div>

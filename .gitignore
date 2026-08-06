@@ -4,3 +4,5 @@ dist-pages/
 .DS_Store
 .superpowers/
 .worktrees/
+.env.local
+.env.*.local
