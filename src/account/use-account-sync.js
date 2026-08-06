@@ -108,7 +108,11 @@ export function useAccountSync({ localData, defaults, notify }) {
   }, [refreshPending, session, syncNow]);
 
   const sendCode = async (email) => {
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    const emailRedirectTo = new URL(import.meta.env.BASE_URL, window.location.origin).toString();
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: true, emailRedirectTo },
+    });
     if (error) throw new Error('验证码发送失败，请稍后重试');
   };
 

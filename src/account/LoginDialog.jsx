@@ -48,7 +48,9 @@ export function LoginDialog({ open, onClose, onSendCode, onVerifyCode }) {
       <button className="dialog-close" onClick={onClose} aria-label="关闭登录"><X size={20} /></button>
       <div className="account-dialog-icon">{step === 'email' ? <Mail size={25} /> : <ShieldCheck size={25} />}</div>
       <h2 id="login-title">{step === 'email' ? '登录并同步' : '输入邮箱验证码'}</h2>
-      <p>{step === 'email' ? '登录同一账号，即可在手机和电脑同步工作台数据。' : `验证码已发送至 ${maskEmail}`}</p>
+      <p>{step === 'email'
+        ? '登录同一账号，即可在手机和电脑同步工作台数据。'
+        : `验证码已发送至 ${maskEmail}。如邮件显示登录按钮，也可直接点击完成登录。`}</p>
       {step === 'email' ? <form onSubmit={send}>
         <label><span>邮箱地址</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" required autoFocus /></label>
         {error && <div className="account-error" role="alert">{error}</div>}
