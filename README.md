@@ -17,7 +17,7 @@ npm run dev
 1. 创建 Supabase 项目。
 2. 在 SQL Editor 执行 `supabase/migrations/202608060001_account_sync.sql`。
 3. 在 Authentication → URL Configuration 添加本地地址和 GitHub Pages 地址。
-4. 在 Authentication → Email Templates 将登录模板配置为 6 位 Token 验证码。
+4. 在 Authentication → Email Templates 将登录模板配置为 6 位 Token 验证码。Supabase 免费项目使用默认邮件服务时不能修改模板，必须先配置自定义 SMTP（或升级套餐）；未配置 SMTP 时，应用仍兼容默认登录链接邮件。
 5. 将 Project URL 和 anon public key 写入 `.env.local`：
 
 ```env
