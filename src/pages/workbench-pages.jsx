@@ -374,7 +374,7 @@ function FitnessPage({ data, setData, notify }) {
   return (
     <section className="page">
       <PageHeader title="减脂记录" icon={Dumbbell} />
-      <form className="entry-form panel" onSubmit={addEntry}>
+      <form className="entry-form panel fitness-form" onSubmit={addEntry}>
         <label><span>记录类型</span><select value={type} onChange={(event) => setType(event.target.value)} aria-label="减脂记录类型"><option>饮食</option><option>运动</option><option>饮水</option><option>体重</option></select></label>
         <label><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="减脂记录日期" required /></label>
         <label><span>数值</span><input value={value} onChange={(event) => setValue(event.target.value)} placeholder="例如：350 千卡、45 分钟" aria-label="减脂记录数值" required /></label>
@@ -418,7 +418,7 @@ function KeepsakesPage({ data, setData, notify }) {
   return (
     <section className="page">
       <PageHeader title="纪念日" icon={Gift} />
-      <form className="entry-form panel" onSubmit={addKeepsake}>
+      <form className="entry-form panel keepsake-form" onSubmit={addKeepsake}>
         <label><span>纪念日名称</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：入职纪念日" aria-label="纪念日名称" required /></label>
         <label><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="纪念日日期" required /></label>
         <button className="primary-button wide" type="submit"><Plus size={20} />新增纪念日</button>
