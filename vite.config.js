@@ -9,6 +9,11 @@ const base = process.env.GITHUB_ACTIONS === 'true' && repositoryName
 
 export default defineConfig({
   base,
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
+    exclude: ['**/node_modules/**', '**/.worktrees/**', '**/dist/**', '**/dist-pages/**'],
+  },
   plugins: [
     react(),
     VitePWA({

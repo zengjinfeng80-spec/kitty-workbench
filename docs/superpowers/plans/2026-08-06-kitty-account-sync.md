@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为现有 Kitty PWA 增加邮箱 6 位验证码登录、旧数据确认迁移、离线缓存、跨设备同步和可部署的 Supabase 数据库权限。
+**Goal:** 为现有 Kitty PWA 增加邮箱 8 位验证码登录、旧数据确认迁移、离线缓存、跨设备同步和可部署的 Supabase 数据库权限。
 
 **Architecture:** 现有页面继续消费统一的 `data/setData` 接口；新增认证控制器、IndexedDB 仓库和同步引擎，将账号与云端细节隔离。Supabase 使用统一记录表和 RLS；未配置 Supabase 时应用保持完整本地模式。
 
@@ -127,9 +127,9 @@ Expected: 测试与构建通过，两个表均命中 RLS。
 
 现有 `kitty-workbench` 的读取、写入和 JSON 备份恢复保持不变；账号 hook 只在存在有效 session 后切换账号缓存。
 
-- [ ] **Step 2: 实现邮箱与 6 位验证码对话框**
+- [ ] **Step 2: 实现邮箱与 8 位验证码对话框**
 
-邮箱必填且使用浏览器邮箱校验；验证码只接受 6 位数字；发送后启动 60 秒倒计时；所有错误显示中文且不输出 token。
+邮箱必填且使用浏览器邮箱校验；验证码只接受 8 位数字；发送后启动 60 秒倒计时；所有错误显示中文且不输出 token。
 
 - [ ] **Step 3: 实现迁移对话框和设置页账号卡片**
 

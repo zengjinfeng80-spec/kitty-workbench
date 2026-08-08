@@ -17,7 +17,7 @@ npm run dev
 1. 创建 Supabase 项目。
 2. 在 SQL Editor 按文件名顺序执行 `supabase/migrations/*.sql`。第二个迁移会在数据库层阻止较旧的离线记录覆盖较新的云端版本。
 3. 在 Authentication → URL Configuration 添加本地地址和 GitHub Pages 地址。
-4. 在 Authentication → Email Templates 将登录模板配置为 6 位 Token 验证码。Supabase 免费项目使用默认邮件服务时不能修改模板，必须先配置自定义 SMTP（或升级套餐）；未配置 SMTP 时，应用仍兼容默认登录链接邮件。
+4. 在 Authentication → Email Templates 将登录模板配置为 8 位 Token 验证码。Supabase 免费项目使用默认邮件服务时不能修改模板，必须先配置自定义 SMTP（或升级套餐）；未配置 SMTP 时，应用仍兼容默认登录链接邮件。
 5. 将 Project URL 和 anon public key 写入 `.env.local`：
 
 ```env

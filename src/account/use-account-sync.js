@@ -3,6 +3,7 @@ import { countLocalRecords, createChangeSet, recordsToWorkbench } from '../sync/
 import { getDeviceId } from '../sync/device.js';
 import { loadAccountRecords, readPendingChanges, saveAccountRecords } from '../sync/indexed-db.js';
 import { createSyncEngine } from '../sync/sync-engine.js';
+import { createSerialTaskQueue } from '../sync/serial-task-queue.js';
 import { isSupabaseConfigured, supabase } from '../supabase/client.js';
 
 function emptyAccountData(defaults) {
@@ -23,6 +24,7 @@ export function useAccountSync({ localData, defaults, notify }) {
   const engineRef = useRef(null);
   const dataRef = useRef(accountData);
   const migrationDecisionRef = useRef(false);
+  const writeQueueRef = useRef(createSerialTaskQueue());
 
   useEffect(() => { dataRef.current = accountData; }, [accountData]);
 
@@ -107,7 +109,7 @@ export function useAccountSync({ localData, defaults, notify }) {
     const next = typeof update === 'function' ? update(previous) : update;
     dataRef.current = next;
     setAccountDataState(next);
-    (async () => {
+    writeQueueRef.current.enqueue(async () => {
       const deviceId = await getDeviceId();
       const changes = await createChangeSet(previous, next, { userId: session.user.id, deviceId, now: new Date().toISOString() });
       if (!changes.length) return;
@@ -115,7 +117,7 @@ export function useAccountSync({ localData, defaults, notify }) {
       await engineRef.current.enqueue(changes);
       await refreshPending(session.user.id);
       if (navigator.onLine) await syncNow(); else setStatus('offline');
-    })().catch(() => setStatus('error'));
+    }).catch(() => setStatus('error'));
   }, [refreshPending, session, syncNow]);
 
   const sendCode = async (email) => {
