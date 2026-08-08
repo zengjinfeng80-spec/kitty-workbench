@@ -13,7 +13,7 @@ export function AccountSyncCard({ account, onOpenLogin, onSync, onSignOut }) {
 
   if (!account.session) return <section className="account-sync-card panel">
     <span className="account-card-icon"><UserRound size={24} /></span>
-    <div><h2>登录并同步</h2><p>使用邮箱 6 位验证码登录，手机和电脑可同步同一份数据。</p></div>
+    <div><h2>登录并同步</h2><p>使用邮箱 8 位验证码登录，手机和电脑可同步同一份数据。</p></div>
     <button className="primary-button" onClick={onOpenLogin}>开始登录</button>
   </section>;
 

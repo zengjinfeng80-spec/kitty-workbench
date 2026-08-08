@@ -54,11 +54,11 @@ export function LoginDialog({ open, onClose, onSendCode, onVerifyCode }) {
       {step === 'email' ? <form onSubmit={send}>
         <label><span>邮箱地址</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" required autoFocus /></label>
         {error && <div className="account-error" role="alert">{error}</div>}
-        <button className="primary-button" disabled={busy}>{busy ? '正在发送…' : '发送 6 位验证码'}</button>
+        <button className="primary-button" disabled={busy}>{busy ? '正在发送…' : '发送 8 位验证码'}</button>
       </form> : <form onSubmit={verify}>
-        <label><span>6 位验证码</span><input className="otp-input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" required autoFocus /></label>
+        <label><span>8 位验证码</span><input className="otp-input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{8}" maxLength="8" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="00000000" required autoFocus /></label>
         {error && <div className="account-error" role="alert">{error}</div>}
-        <button className="primary-button" disabled={busy || code.length !== 6}>{busy ? '正在验证…' : '验证并登录'}</button>
+        <button className="primary-button" disabled={busy || code.length !== 8}>{busy ? '正在验证…' : '验证并登录'}</button>
         <button type="button" className="text-button" disabled={seconds > 0 || busy} onClick={() => send({ preventDefault() {} })}>{seconds > 0 ? `${seconds} 秒后可重新发送` : '重新发送验证码'}</button>
         <button type="button" className="text-button back" onClick={() => setStep('email')}><ArrowLeft size={16} />修改邮箱</button>
       </form>}
