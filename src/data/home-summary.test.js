@@ -11,8 +11,8 @@ describe('getHomeSummary', () => {
         { id: 2, text: '整理资料', done: false },
       ],
       records: [
-        { id: 1, amount: 36, note: '午餐', category: '餐饮', time: '刚刚' },
-        { id: 2, amount: 20, note: '昨天支出', category: '日用', time: '昨天 18:00' },
+        { id: 1, amount: 36, note: '午餐', category: '餐饮', date: '2026-08-08', time: '刚刚' },
+        { id: 2, amount: 20, note: '昨天支出', category: '日用', date: '2026-08-07', time: '刚刚' },
       ],
       fitnessEntries: [
         { id: 1, type: '饮食', value: '320 千卡', note: '早餐', date: '2026-08-08' },
@@ -42,5 +42,14 @@ describe('getHomeSummary', () => {
       spending: 0,
       cycleDay: null,
     });
+  });
+
+  it('旧账目没有日期时继续按原记录时间统计', () => {
+    const data = {
+      tasks: [], fitnessEntries: [], cycleEntries: [],
+      records: [{ id: 1, amount: 25, note: '旧记录', category: '餐饮', time: '今天 09:15' }],
+    };
+
+    expect(getHomeSummary(data, today).spending).toBe(25);
   });
 });

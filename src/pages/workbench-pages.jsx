@@ -229,24 +229,27 @@ function AccountsPage({ data, setData, notify }) {
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [category, setCategory] = useState('餐饮');
+  const [date, setDate] = useState(getTodayIso);
   const [editingId, setEditingId] = useState(null);
   const [editAmount, setEditAmount] = useState('');
   const [editNote, setEditNote] = useState('');
   const [editCategory, setEditCategory] = useState('餐饮');
+  const [editDate, setEditDate] = useState(getTodayIso);
   const total = data.records.reduce((sum, item) => sum + item.amount, 0);
   const addRecord = (event) => {
     event.preventDefault();
     const value = Number(amount);
     if (!value || value <= 0 || !note.trim()) return;
-    const record = { id: Date.now(), amount: value, note: note.trim(), category, time: '刚刚' };
+    const record = { id: Date.now(), amount: value, note: note.trim(), category, date, time: '刚刚' };
     setData((current) => ({ ...current, records: [record, ...current.records] }));
-    setAmount(''); setNote(''); notify('账目已记录');
+    setAmount(''); setNote(''); setDate(getTodayIso()); notify('账目已记录');
   };
   const startEdit = (item) => {
     setEditingId(item.id);
     setEditAmount(String(item.amount));
     setEditNote(item.note);
     setEditCategory(item.category);
+    setEditDate(item.date || getTodayIso());
   };
   const cancelEdit = () => setEditingId(null);
   const saveEdit = (event, id) => {
@@ -255,7 +258,7 @@ function AccountsPage({ data, setData, notify }) {
     if (!value || value <= 0 || !editNote.trim()) return;
     setData((current) => ({
       ...current,
-      records: current.records.map((item) => item.id === id ? { ...item, amount: value, note: editNote.trim(), category: editCategory } : item),
+      records: current.records.map((item) => item.id === id ? { ...item, amount: value, note: editNote.trim(), category: editCategory, date: editDate } : item),
     }));
     cancelEdit();
     notify('账目已更新');
@@ -272,6 +275,7 @@ function AccountsPage({ data, setData, notify }) {
       <form className="entry-form panel" onSubmit={addRecord}>
         <label><span>金额</span><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" aria-label="金额" /></label>
         <label><span>分类</span><select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="分类"><option>餐饮</option><option>交通</option><option>日用</option><option>学习</option><option>其他</option></select></label>
+        <label className="wide"><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="记账日期" required /></label>
         <label className="wide"><span>备注</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="这笔钱花在了哪里" aria-label="备注" /></label>
         <button className="primary-button wide" type="submit"><Plus size={20} />记一笔</button>
       </form>
@@ -281,13 +285,14 @@ function AccountsPage({ data, setData, notify }) {
           <form className="record-edit-row" key={item.id} onSubmit={(event) => saveEdit(event, item.id)}>
             <label><span>金额</span><input inputMode="decimal" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} aria-label={`编辑${item.note}金额`} required /></label>
             <label><span>分类</span><select value={editCategory} onChange={(event) => setEditCategory(event.target.value)} aria-label={`编辑${item.note}分类`}><option>餐饮</option><option>交通</option><option>日用</option><option>学习</option><option>其他</option></select></label>
+            <label className="wide"><span>日期</span><input type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} aria-label={`编辑${item.note}日期`} required /></label>
             <label className="wide"><span>备注</span><input value={editNote} onChange={(event) => setEditNote(event.target.value)} aria-label={`编辑${item.note}备注`} required /></label>
             <div className="record-edit-actions"><button className="primary-button" type="submit"><Check size={18} />保存</button><button className="secondary-button" type="button" onClick={cancelEdit}><X size={18} />取消</button></div>
           </form>
         ) : (
           <div className="record-row" key={item.id}>
             <span className="record-emoji">{item.category === '餐饮' ? '🍜' : item.category === '学习' ? '📚' : '🧾'}</span>
-            <div><strong>{item.note}</strong><span>{item.category} · {item.time}</span></div>
+            <div><strong>{item.note}</strong><span>{item.category} · {item.date ? formatDate(item.date) : item.time}</span></div>
             <b>-¥{item.amount}</b>
             <div className="record-actions"><button type="button" className="icon-button" onClick={() => startEdit(item)} aria-label={`编辑${item.note}`}><Pencil size={17} /></button><button type="button" className="icon-button delete" onClick={() => removeRecord(item)} aria-label={`删除${item.note}`}><Trash2 size={17} /></button></div>
           </div>
@@ -565,8 +570,8 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
       { header: '内容', key: 'text', width: 34 }, { header: '状态', key: 'status', width: 14 },
     ], data.tasks.map((item) => ({ text: item.text, status: item.done ? '已完成' : '未完成' })));
     addSheet('记账', [
-      { header: '记录时间', key: 'time', width: 20 }, { header: '分类', key: 'category', width: 14 }, { header: '金额', key: 'amount', width: 14, type: Number, format: '¥#,##0.00' }, { header: '备注', key: 'note', width: 32 },
-    ], data.records.map((item) => ({ time: item.time, category: item.category, amount: item.amount, note: item.note })));
+      { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '记录时间', key: 'time', width: 20 }, { header: '分类', key: 'category', width: 14 }, { header: '金额', key: 'amount', width: 14, type: Number, format: '¥#,##0.00' }, { header: '备注', key: 'note', width: 32 },
+    ], data.records.map((item) => ({ date: toExcelDate(item.date), time: item.time, category: item.category, amount: item.amount, note: item.note })));
     addSheet('减脂', [
       { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '类型', key: 'type', width: 14 }, { header: '数值', key: 'value', width: 18 }, { header: '备注', key: 'note', width: 32 },
     ], data.fitnessEntries.map((item) => ({ date: toExcelDate(item.date), type: item.type, value: item.value, note: item.note })));
@@ -631,4 +636,4 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
   );
 }
 
-export { App, TasksPage };
+export { AccountsPage, App, TasksPage };
