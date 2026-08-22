@@ -39,7 +39,7 @@ import { MigrationDialog } from '../account/MigrationDialog.jsx';
 import { useAccountSync } from '../account/use-account-sync.js';
 import { getHomeSummary } from '../data/home-summary.js';
 import { DEFAULT_DATA } from '../data/default-data.js';
-import { formatCountdown, formatDate, getCycleDay, getGreeting, getNextCycleDate, getTodayIso } from '../utils/date.js';
+import { formatCountdown, formatDate, getAverageCycleLength, getCycleDay, getCycleDuration, getCycleStatus, getCurrentCycle, getFertileWindow, getGreeting, getLowerFertilityWindows, getNextCycleDate, getOvulationDate, getTodayIso } from '../utils/date.js';
 import { Activity, EditActions, ModuleRecord, PageHeader, SettingRow, Sidebar, Toggle } from '../components/common.jsx';
 
 const NAV_ITEMS = [
@@ -485,49 +485,127 @@ function DiaryPage({ data, setData, notify }) {
   );
 }
 
+const EMPTY_SYMPTOMS = { pain: '', flow: '', mood: '' };
+const symptomOptions = {
+  pain: ['无', '轻', '中', '重'],
+  flow: ['少', '中', '多'],
+  mood: ['平稳', '低落', '烦躁', '疲倦'],
+};
+
+function CycleFormFields({ value, onChange, editing = false }) {
+  const prefix = editing ? '编辑' : '';
+  const update = (key, nextValue) => onChange({ ...value, [key]: nextValue });
+  const updateSymptom = (key, nextValue) => onChange({ ...value, symptoms: { ...EMPTY_SYMPTOMS, ...value.symptoms, [key]: nextValue } });
+  return <>
+    <label><span>开始日期</span><input type="date" value={value.startDate} onChange={(event) => update('startDate', event.target.value)} aria-label={`${prefix}经期开始日期`} required /></label>
+    <label><span>结束日期（可选）</span><input type="date" value={value.endDate} onChange={(event) => update('endDate', event.target.value)} aria-label={`${prefix}经期结束日期`} /></label>
+    <label><span>周期天数</span><input type="number" min="20" max="45" value={value.cycleLength} onChange={(event) => update('cycleLength', event.target.value)} aria-label={`${prefix}周期天数`} required /></label>
+    {Object.entries(symptomOptions).map(([key, options]) => <label key={key}><span>{{ pain: '腹痛', flow: '出血量', mood: '情绪' }[key]}</span><select value={value.symptoms?.[key] || ''} onChange={(event) => updateSymptom(key, event.target.value)} aria-label={`${prefix}${{ pain: '腹痛', flow: '出血量', mood: '情绪' }[key]}`}><option value="">未记录</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>)}
+    <label className="wide"><span>备注</span><input value={value.note} onChange={(event) => update('note', event.target.value)} placeholder="例如：状态正常" aria-label={`${prefix}经期备注`} /></label>
+  </>;
+}
+
+function cycleDraftFromEntry(entry) {
+  return {
+    startDate: entry.startDate,
+    endDate: entry.endDate || '',
+    cycleLength: String(entry.cycleLength),
+    note: entry.note || '',
+    symptoms: { ...EMPTY_SYMPTOMS, ...(entry.symptoms || {}) },
+  };
+}
+
+function createCycleEntry(draft, id) {
+  const length = Number(draft.cycleLength);
+  if (!draft.startDate || !Number.isInteger(length) || length < 20 || length > 45) return null;
+  if (draft.endDate && draft.endDate < draft.startDate) return null;
+  return {
+    id,
+    startDate: draft.startDate,
+    endDate: draft.endDate || null,
+    cycleLength: length,
+    note: draft.note.trim(),
+    symptoms: { ...EMPTY_SYMPTOMS, ...draft.symptoms },
+  };
+}
+
+function formatCycleSymptoms(symptoms = {}) {
+  return [
+    symptoms.pain && `腹痛${symptoms.pain}`,
+    symptoms.flow && `出血${symptoms.flow}`,
+    symptoms.mood && `情绪${symptoms.mood}`,
+  ].filter(Boolean).join(' · ');
+}
+
+function formatDateRange(range) {
+  return range ? `${formatDate(range.startDate)}～${formatDate(range.endDate)}` : '暂无';
+}
+
+function formatDateRanges(ranges = []) {
+  return ranges.length ? ranges.map((range) => formatDateRange(range)).join('、') : '暂无';
+}
+
 function CyclePage({ data, setData, notify }) {
-  const [startDate, setStartDate] = useState(getTodayIso);
-  const [cycleLength, setCycleLength] = useState('28');
-  const [note, setNote] = useState('');
+  const [draft, setDraft] = useState(() => ({ startDate: getTodayIso(), endDate: '', cycleLength: '28', note: '', symptoms: EMPTY_SYMPTOMS }));
   const [editing, setEditing] = useState(null);
+  const now = new Date();
+  const entries = data.cycleEntries ?? [];
+  const currentCycle = getCurrentCycle(entries, now);
+  const averageCycle = getAverageCycleLength(entries);
+  const predictedNextDate = currentCycle ? getNextCycleDate(currentCycle.startDate, averageCycle ?? currentCycle.cycleLength, now) : null;
+  const ovulationDate = getOvulationDate(predictedNextDate);
+  const fertileWindow = getFertileWindow(predictedNextDate);
+  const lowerFertilityWindows = currentCycle ? getLowerFertilityWindows(currentCycle.startDate, predictedNextDate) : [];
+  const invalidMessage = '周期天数需为 20～45 天，且结束日期不能早于开始日期';
   const addCycle = (event) => {
     event.preventDefault();
-    const length = Number(cycleLength);
-    if (!Number.isInteger(length) || length < 20 || length > 45) return;
-    const entry = { id: Date.now(), startDate, cycleLength: length, note: note.trim() };
-    setData((current) => ({ ...current, cycleEntries: [entry, ...current.cycleEntries] }));
-    setNote(''); notify('经期记录已保存');
+    const entry = createCycleEntry(draft, Date.now());
+    if (!entry) { notify(invalidMessage); return; }
+    setData((current) => ({ ...current, cycleEntries: [entry, ...(current.cycleEntries ?? [])] }));
+    setDraft({ startDate: getTodayIso(), endDate: '', cycleLength: '28', note: '', symptoms: EMPTY_SYMPTOMS });
+    notify('经期记录已保存');
   };
   const saveEdit = (event) => {
     event.preventDefault();
-    const length = Number(editing.cycleLength);
-    if (!Number.isInteger(length) || length < 20 || length > 45) return;
-    setData((current) => ({ ...current, cycleEntries: current.cycleEntries.map((item) => item.id === editing.id ? { ...editing, cycleLength: length, note: editing.note.trim() } : item) }));
+    const entry = createCycleEntry(editing, editing.id);
+    if (!entry) { notify(invalidMessage); return; }
+    setData((current) => ({ ...current, cycleEntries: (current.cycleEntries ?? []).map((item) => item.id === editing.id ? entry : item) }));
     setEditing(null); notify('经期记录已更新');
   };
-  const remove = (id) => setData((current) => ({ ...current, cycleEntries: current.cycleEntries.filter((item) => item.id !== id) }));
+  const remove = (id) => setData((current) => ({ ...current, cycleEntries: (current.cycleEntries ?? []).filter((item) => item.id !== id) }));
   return (
     <section className="page">
       <PageHeader title="周期记录" icon={Moon} />
       <form className="entry-form panel" onSubmit={addCycle}>
-        <label><span>开始日期</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} aria-label="经期开始日期" required /></label>
-        <label><span>周期天数</span><input type="number" min="20" max="45" value={cycleLength} onChange={(event) => setCycleLength(event.target.value)} aria-label="周期天数" required /></label>
-        <label className="wide"><span>备注</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：状态正常" aria-label="经期备注" /></label>
+        <CycleFormFields value={draft} onChange={setDraft} />
         <button className="primary-button wide" type="submit"><Plus size={20} />保存周期</button>
       </form>
+      <div className="cycle-summary panel">
+        <div><span>当前状态</span><strong>{currentCycle ? getCycleStatus(currentCycle, now) : '暂无记录'}</strong></div>
+        <div><span>平均周期</span><strong>{averageCycle ? `${averageCycle} 天` : '记录不足'}</strong></div>
+        <div><span>下次预计</span><strong>{predictedNextDate ? formatDate(predictedNextDate) : '暂无'}</strong></div>
+      </div>
+      <div className="cycle-predictions panel">
+        <div><span>排卵日估算</span><strong>{formatDate(ovulationDate) || '暂无'}</strong></div>
+        <div><span>易孕期估算</span><strong>{formatDateRange(fertileWindow)}</strong></div>
+        <div><span>安全期（仅估算）</span><strong>{formatDateRanges(lowerFertilityWindows)}</strong></div>
+        <p className="cycle-disclaimer">以上日期按固定规则估算，不能作为避孕或医疗判断依据；周期不规律时误差可能较大。</p>
+      </div>
       <h2 className="section-title">周期历史</h2>
       <div className="module-record-list panel">
-        {data.cycleEntries.length ? data.cycleEntries.map((item) => {
+        {entries.length ? entries.map((item) => {
           if (editing?.id === item.id) return (
             <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
-              <label><span>开始日期</span><input type="date" value={editing.startDate} onChange={(event) => setEditing({ ...editing, startDate: event.target.value })} aria-label="编辑经期开始日期" required /></label>
-              <label><span>周期天数</span><input type="number" min="20" max="45" value={editing.cycleLength} onChange={(event) => setEditing({ ...editing, cycleLength: event.target.value })} aria-label="编辑周期天数" required /></label>
-              <label className="wide"><span>备注</span><input value={editing.note} onChange={(event) => setEditing({ ...editing, note: event.target.value })} aria-label="编辑经期备注" /></label>
+              <CycleFormFields value={editing} onChange={setEditing} editing />
               <EditActions onCancel={() => setEditing(null)} />
             </form>
           );
-          const day = getCycleDay(item.startDate, item.cycleLength);
-          return <ModuleRecord key={item.id} icon="🌙" title={item.note || '经期记录'} detail={`开始于 ${formatDate(item.startDate)} · ${item.cycleLength} 天周期`} value={<><strong>{day ? `第 ${day} 天` : '尚未开始'}</strong><small>下次预计 {formatDate(getNextCycleDate(item.startDate, item.cycleLength))}</small></>} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />;
+          const day = getCycleDay(item.startDate, item.cycleLength, now);
+          const duration = getCycleDuration(item.startDate, item.endDate);
+          const symptoms = formatCycleSymptoms(item.symptoms);
+          const detail = [`开始于 ${formatDate(item.startDate)}`, `${item.cycleLength} 天周期`, getCycleStatus(item, now), duration ? `持续 ${duration} 天` : null, symptoms || null].filter(Boolean).join(' · ');
+          const nextDate = getNextCycleDate(item.startDate, averageCycle ?? item.cycleLength, now);
+          return <ModuleRecord key={item.id} icon="🌙" title={item.note || '经期记录'} detail={detail} value={<><strong>{day ? `第 ${day} 天` : getCycleStatus(item, now)}</strong><small>下次预计 {formatDate(nextDate)}</small></>} onEdit={() => setEditing({ ...item, ...cycleDraftFromEntry(item) })} onRemove={() => remove(item.id)} />;
         }) : <p className="module-empty">还没有经期记录</p>}
       </div>
     </section>
@@ -584,9 +662,13 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
     addSheet('日记', [
       { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '心情', key: 'mood', width: 14 }, { header: '日记内容', key: 'content', width: 54 },
     ], data.diaryEntries.map((item) => ({ date: toExcelDate(item.date), mood: item.mood, content: item.content })));
+    const averageCycle = getAverageCycleLength(data.cycleEntries);
     addSheet('经期', [
-      { header: '开始日期', key: 'startDate', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '周期天数', key: 'cycleLength', width: 14, type: Number }, { header: '备注', key: 'note', width: 32 }, { header: '下次预计', key: 'nextDate', width: 14, type: Date, format: 'yyyy-mm-dd' },
-    ], data.cycleEntries.map((item) => ({ startDate: toExcelDate(item.startDate), cycleLength: item.cycleLength, note: item.note, nextDate: toExcelDate(getNextCycleDate(item.startDate, item.cycleLength)) })));
+      { header: '开始日期', key: 'startDate', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '结束日期', key: 'endDate', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '周期天数', key: 'cycleLength', width: 14, type: Number }, { header: '持续天数', key: 'duration', width: 14, type: Number }, { header: '状态', key: 'status', width: 24 }, { header: '腹痛', key: 'pain', width: 12 }, { header: '出血量', key: 'flow', width: 12 }, { header: '情绪', key: 'mood', width: 12 }, { header: '备注', key: 'note', width: 32 }, { header: '下次预计', key: 'nextDate', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '排卵日估算', key: 'ovulationDate', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '易孕期估算', key: 'fertileWindow', width: 24 }, { header: '安全期估算', key: 'lowerFertilityWindows', width: 42 },
+    ], data.cycleEntries.map((item) => {
+      const nextDate = getNextCycleDate(item.startDate, averageCycle ?? item.cycleLength);
+      return { startDate: toExcelDate(item.startDate), endDate: toExcelDate(item.endDate), cycleLength: item.cycleLength, duration: getCycleDuration(item.startDate, item.endDate), status: getCycleStatus(item), pain: item.symptoms?.pain || '', flow: item.symptoms?.flow || '', mood: item.symptoms?.mood || '', note: item.note, nextDate: toExcelDate(nextDate), ovulationDate: toExcelDate(getOvulationDate(nextDate)), fertileWindow: formatDateRange(getFertileWindow(nextDate)), lowerFertilityWindows: formatDateRanges(getLowerFertilityWindows(item.startDate, nextDate)) };
+    }));
     await writeXlsxFile(sheets).toFile(`Kitty工作台记录-${getTodayIso()}.xlsx`);
     notify('Excel 表格已导出');
   };
