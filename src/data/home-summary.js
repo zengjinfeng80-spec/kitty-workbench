@@ -1,13 +1,8 @@
-import { getCycleDay, toLocalIso } from '../utils/date.js';
-
-function parseLeadingNumber(value) {
-  const match = String(value ?? '').match(/-?\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : 0;
-}
+import { getCycleDay, getRecordIsoDate, toLocalIso } from '../utils/date.js';
+import { parseFitnessValue } from './fitness-summary.js';
 
 function isTodayRecord(record, todayIso) {
-  if (record.date) return record.date === todayIso;
-  return record.time === '刚刚' || record.time?.startsWith('今天');
+  return getRecordIsoDate(record, new Date(`${todayIso}T12:00:00`)) === todayIso;
 }
 
 export function getHomeSummary(data, now = new Date()) {
@@ -24,7 +19,7 @@ export function getHomeSummary(data, now = new Date()) {
     progress: tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0,
     calories: (data.fitnessEntries ?? [])
       .filter((entry) => entry.type === '饮食' && entry.date === todayIso)
-      .reduce((sum, entry) => sum + parseLeadingNumber(entry.value), 0),
+      .reduce((sum, entry) => sum + parseFitnessValue(entry).amount, 0),
     spending: (data.records ?? [])
       .filter((record) => isTodayRecord(record, todayIso))
       .reduce((sum, record) => sum + Number(record.amount || 0), 0),

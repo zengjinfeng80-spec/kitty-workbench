@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getAverageCycleLength, getCycleDuration, getCycleStatus, getCurrentCycle, getFertileWindow, getLowerFertilityWindows, getNextCycleDate, getOvulationDate } from './date.js';
+import { getAverageCycleLength, getCycleDuration, getCycleStatus, getCurrentCycle, getFertileWindow, getLowerFertilityWindows, getNextAnnualDate, getNextCycleDate, getOvulationDate } from './date.js';
 
 describe('经期日期规则', () => {
   const today = new Date('2026-08-22T09:00:00');
@@ -34,5 +34,10 @@ describe('经期日期规则', () => {
       { startDate: '2026-08-01', endDate: '2026-08-09' },
       { startDate: '2026-08-17', endDate: '2026-08-28' },
     ]);
+  });
+
+  it('按今年或下一年计算重复纪念日', () => {
+    expect(getNextAnnualDate('2020-08-29', today)).toBe('2026-08-29');
+    expect(getNextAnnualDate('2020-08-01', today)).toBe('2027-08-01');
   });
 });

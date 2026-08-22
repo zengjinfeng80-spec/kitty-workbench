@@ -5,6 +5,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   CircleDollarSign,
   CloudDownload,
@@ -38,8 +39,9 @@ import { LoginDialog } from '../account/LoginDialog.jsx';
 import { MigrationDialog } from '../account/MigrationDialog.jsx';
 import { useAccountSync } from '../account/use-account-sync.js';
 import { getHomeSummary } from '../data/home-summary.js';
+import { FITNESS_UNITS, createFitnessEntry, formatFitnessValue, getDefaultFitnessUnit, getFitnessDraft, getFitnessSummary } from '../data/fitness-summary.js';
 import { DEFAULT_DATA } from '../data/default-data.js';
-import { formatCountdown, formatDate, getAverageCycleLength, getCycleDay, getCycleDuration, getCycleStatus, getCurrentCycle, getFertileWindow, getGreeting, getLowerFertilityWindows, getNextCycleDate, getOvulationDate, getTodayIso } from '../utils/date.js';
+import { formatCountdown, formatDate, getAverageCycleLength, getCycleDay, getCycleDuration, getCycleStatus, getCurrentCycle, getFertileWindow, getGreeting, getLowerFertilityWindows, getMonthKey, getNextAnnualDate, getNextCycleDate, getOvulationDate, getRecordIsoDate, getReminderMinutes, getTodayIso, toLocalIso } from '../utils/date.js';
 import { Activity, EditActions, ModuleRecord, PageHeader, SettingRow, Sidebar, Toggle } from '../components/common.jsx';
 
 const NAV_ITEMS = [
@@ -99,6 +101,29 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [active]);
+
+  const reminderKeys = useRef(new Set());
+  useEffect(() => {
+    if (!data.profile.reminders) return undefined;
+    const checkReminders = () => {
+      const now = new Date();
+      data.events.forEach((event) => {
+        const minutes = getReminderMinutes(event.reminder);
+        if (minutes === null || !event.date || !event.time) return;
+        const eventAt = new Date(`${event.date}T${event.time}:00`);
+        const reminderAt = new Date(eventAt.getTime() - minutes * 60_000);
+        const key = `${event.id}-${event.date}-${event.time}-${event.reminder}`;
+        const elapsed = now.getTime() - reminderAt.getTime();
+        if (elapsed >= 0 && elapsed < 60_000 && !reminderKeys.current.has(key)) {
+          reminderKeys.current.add(key);
+          notify(`日程提醒：${event.title}`);
+        }
+      });
+    };
+    checkReminders();
+    const timer = window.setInterval(checkReminders, 60_000);
+    return () => window.clearInterval(timer);
+  }, [data.events, data.profile.reminders]);
 
   useEffect(() => {
     const capturePrompt = (event) => {
@@ -178,7 +203,7 @@ function HomePage({ data, setActive }) {
       </div>
 
       <div className="stat-grid">
-        <button className="stat-card" onClick={() => setActive('tasks')}><strong className="pink">{summary.taskCount}</strong><span>今日待办</span></button>
+        <button className="stat-card" onClick={() => setActive('tasks')}><strong className="pink">{summary.taskCount}</strong><span>待办总数</span></button>
         <button className="stat-card" onClick={() => setActive('fitness')}><strong className="green">{summary.calories}</strong><span>摄入千卡</span></button>
         <button className="stat-card" onClick={() => setActive('accounts')}><strong className="orange">¥{summary.spending}</strong><span>今日支出</span></button>
         <button className="stat-card" onClick={() => setActive('cycle')}><strong className="pink">{summary.cycleDay ? `第 ${summary.cycleDay} 天` : '暂无'}</strong><span>经期周期</span></button>
@@ -196,30 +221,66 @@ function HomePage({ data, setActive }) {
   );
 }
 
+const TASK_PRIORITIES = ['高', '中', '低'];
+
 function TasksPage({ data, setData, notify }) {
-  const [text, setText] = useState('');
+  const [draft, setDraft] = useState({ text: '', dueDate: getTodayIso(), priority: '中' });
+  const [editing, setEditing] = useState(null);
+  const today = getTodayIso();
+  const groups = useMemo(() => {
+    const result = { today: [], overdue: [], unscheduled: [], upcoming: [], completed: [] };
+    data.tasks.forEach((task) => {
+      if (task.done) result.completed.push(task);
+      else if (!task.dueDate) result.unscheduled.push(task);
+      else if (task.dueDate < today) result.overdue.push(task);
+      else if (task.dueDate === today) result.today.push(task);
+      else result.upcoming.push(task);
+    });
+    return result;
+  }, [data.tasks, today]);
   const addTask = (event) => {
     event.preventDefault();
-    if (!text.trim()) return;
-    setData((current) => ({ ...current, tasks: [...current.tasks, { id: Date.now(), text: text.trim(), done: false }] }));
-    setText('');
+    if (!draft.text.trim()) return;
+    setData((current) => ({ ...current, tasks: [...current.tasks, { id: Date.now(), text: draft.text.trim(), done: false, dueDate: draft.dueDate || null, priority: draft.priority }] }));
+    setDraft({ text: '', dueDate: getTodayIso(), priority: '中' });
     notify('待办已添加');
   };
-  const toggle = (id) => setData((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, done: !task.done } : task) }));
+  const toggle = (id) => setData((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, done: !task.done, completedAt: !task.done ? new Date().toISOString() : null } : task) }));
   const remove = (id) => setData((current) => ({ ...current, tasks: current.tasks.filter((task) => task.id !== id) }));
+  const saveEdit = (event) => {
+    event.preventDefault();
+    if (!editing.text.trim()) return;
+    setData((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === editing.id ? { ...task, text: editing.text.trim(), dueDate: editing.dueDate || null, priority: editing.priority || '中' } : task) }));
+    setEditing(null);
+    notify('待办已更新');
+  };
+  const renderTask = (task) => editing?.id === task.id ? (
+    <form className="task-edit-row" key={task.id} onSubmit={saveEdit}>
+      <input value={editing.text} onChange={(event) => setEditing({ ...editing, text: event.target.value })} aria-label={`编辑${task.text}`} required />
+      <input type="date" value={editing.dueDate || ''} onChange={(event) => setEditing({ ...editing, dueDate: event.target.value })} aria-label={`编辑${task.text}截止日期`} />
+      <select value={editing.priority || '中'} onChange={(event) => setEditing({ ...editing, priority: event.target.value })} aria-label={`编辑${task.text}优先级`}>{TASK_PRIORITIES.map((priority) => <option key={priority}>{priority}</option>)}</select>
+      <div className="record-edit-actions"><button className="primary-button" type="submit"><Check size={18} />保存</button><button className="secondary-button" type="button" onClick={() => setEditing(null)}><X size={18} />取消</button></div>
+    </form>
+  ) : (
+    <div className={`task-row ${task.done ? 'done' : ''}`} key={task.id}>
+      <button className="check-button" onClick={() => toggle(task.id)} aria-label={task.done ? '标记为未完成' : '标记为完成'}>{task.done && <Check size={18} />}</button>
+      <div className="task-copy"><span>{task.text}</span><small>{task.dueDate ? formatDate(task.dueDate) : '未安排'} · 优先级{task.priority || '中'}</small></div>
+      <div className="task-actions"><button className="icon-button" onClick={() => setEditing({ ...task })} aria-label={`编辑${task.text}`}><Pencil size={17} /></button><button className="icon-button delete" onClick={() => remove(task.id)} aria-label="删除待办"><Trash2 size={18} /></button></div>
+    </div>
+  );
+  const groupLabels = [['today', '今天'], ['overdue', '逾期'], ['unscheduled', '未安排'], ['upcoming', '以后'], ['completed', '已完成']];
   return (
     <section className="page">
-      <PageHeader title="今日待办" icon={CheckCircle2} />
-      <form className="quick-add" onSubmit={addTask}>
-        <input value={text} onChange={(event) => setText(event.target.value)} placeholder="写下一件要完成的事" aria-label="新待办" />
+      <PageHeader title="待办清单" icon={CheckCircle2} />
+      <form className="quick-add task-add" onSubmit={addTask}>
+        <input value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} placeholder="写下一件要完成的事" aria-label="新待办" />
+        <input type="date" value={draft.dueDate} onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })} aria-label="新待办截止日期" />
+        <select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })} aria-label="新待办优先级">{TASK_PRIORITIES.map((priority) => <option key={priority}>{priority}</option>)}</select>
         <button className="primary-button" type="submit"><Plus size={20} />添加</button>
       </form>
       <div className="task-list panel">
-        {data.tasks.map((task) => <div className={`task-row ${task.done ? 'done' : ''}`} key={task.id}>
-          <button className="check-button" onClick={() => toggle(task.id)} aria-label={task.done ? '标记为未完成' : '标记为完成'}>{task.done && <Check size={18} />}</button>
-          <span>{task.text}</span>
-          <button className="icon-button delete" onClick={() => remove(task.id)} aria-label="删除待办"><Trash2 size={18} /></button>
-        </div>)}
+        {groupLabels.map(([key, label]) => groups[key].length ? <section className="task-group" key={key}><h2>{label}<span>{groups[key].length}</span></h2>{groups[key].map(renderTask)}</section> : null)}
+        {!data.tasks.length && <p className="module-empty">还没有待办</p>}
       </div>
     </section>
   );
@@ -235,7 +296,24 @@ function AccountsPage({ data, setData, notify }) {
   const [editNote, setEditNote] = useState('');
   const [editCategory, setEditCategory] = useState('餐饮');
   const [editDate, setEditDate] = useState(getTodayIso);
-  const total = data.records.reduce((sum, item) => sum + item.amount, 0);
+  const [monthKey, setMonthKey] = useState(() => getMonthKey());
+  const [categoryFilter, setCategoryFilter] = useState('全部');
+  const [search, setSearch] = useState('');
+  const filteredRecords = useMemo(() => data.records.filter((item) => {
+    const recordDate = getRecordIsoDate(item);
+    const matchesMonth = recordDate ? getMonthKey(recordDate) === monthKey : monthKey === getMonthKey();
+    const matchesCategory = categoryFilter === '全部' || item.category === categoryFilter;
+    const matchesSearch = !search.trim() || item.note.toLowerCase().includes(search.trim().toLowerCase());
+    return matchesMonth && matchesCategory && matchesSearch;
+  }), [data.records, monthKey, categoryFilter, search]);
+  const total = data.records.filter((item) => {
+    const recordDate = getRecordIsoDate(item);
+    return recordDate ? getMonthKey(recordDate) === monthKey : monthKey === getMonthKey();
+  }).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const moveMonth = (delta) => {
+    const [year, month] = monthKey.split('-').map(Number);
+    setMonthKey(getMonthKey(new Date(year, month - 1 + delta, 1)));
+  };
   const addRecord = (event) => {
     event.preventDefault();
     const value = Number(amount);
@@ -271,7 +349,7 @@ function AccountsPage({ data, setData, notify }) {
   };
   return (
     <section className="page">
-      <PageHeader title="轻松记账" icon={CircleDollarSign} action={<div className="month-total"><span>本月支出</span><strong>¥{total}</strong></div>} />
+      <PageHeader title="轻松记账" icon={CircleDollarSign} action={<div className="month-total"><span>本月支出</span><strong>¥{total.toFixed(2)}</strong></div>} />
       <form className="entry-form panel" onSubmit={addRecord}>
         <label><span>金额</span><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" aria-label="金额" /></label>
         <label><span>分类</span><select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="分类"><option>餐饮</option><option>交通</option><option>日用</option><option>学习</option><option>其他</option></select></label>
@@ -279,9 +357,14 @@ function AccountsPage({ data, setData, notify }) {
         <label className="wide"><span>备注</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="这笔钱花在了哪里" aria-label="备注" /></label>
         <button className="primary-button wide" type="submit"><Plus size={20} />记一笔</button>
       </form>
-      <h2 className="section-title">最近账目</h2>
+      <div className="record-filters">
+        <div className="month-nav"><button type="button" className="icon-button" onClick={() => moveMonth(-1)} aria-label="上一个月"><ChevronLeft size={18} /></button><strong>{monthKey.replace('-', '年')}月</strong><button type="button" className="icon-button" onClick={() => moveMonth(1)} aria-label="下一个月"><ChevronRight size={18} /></button></div>
+        <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="账目分类筛选"><option>全部</option><option>餐饮</option><option>交通</option><option>日用</option><option>学习</option><option>其他</option></select>
+        <input className="filter-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索备注" aria-label="搜索账目备注" />
+      </div>
+      <h2 className="section-title">账目记录</h2>
       <div className="record-list panel">
-        {data.records.map((item) => editingId === item.id ? (
+        {filteredRecords.length ? filteredRecords.map((item) => editingId === item.id ? (
           <form className="record-edit-row" key={item.id} onSubmit={(event) => saveEdit(event, item.id)}>
             <label><span>金额</span><input inputMode="decimal" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} aria-label={`编辑${item.note}金额`} required /></label>
             <label><span>分类</span><select value={editCategory} onChange={(event) => setEditCategory(event.target.value)} aria-label={`编辑${item.note}分类`}><option>餐饮</option><option>交通</option><option>日用</option><option>学习</option><option>其他</option></select></label>
@@ -293,10 +376,10 @@ function AccountsPage({ data, setData, notify }) {
           <div className="record-row" key={item.id}>
             <span className="record-emoji">{item.category === '餐饮' ? '🍜' : item.category === '学习' ? '📚' : '🧾'}</span>
             <div><strong>{item.note}</strong><span>{item.category} · {item.date ? formatDate(item.date) : item.time}</span></div>
-            <b>-¥{item.amount}</b>
+            <b>-¥{Number(item.amount || 0).toFixed(2)}</b>
             <div className="record-actions"><button type="button" className="icon-button" onClick={() => startEdit(item)} aria-label={`编辑${item.note}`}><Pencil size={17} /></button><button type="button" className="icon-button delete" onClick={() => removeRecord(item)} aria-label={`删除${item.note}`}><Trash2 size={17} /></button></div>
           </div>
-        ))}
+        )) : <p className="module-empty">没有符合条件的账目</p>}
       </div>
     </section>
   );
@@ -305,40 +388,42 @@ function AccountsPage({ data, setData, notify }) {
 function buildMonthDays(year, month) {
   const first = new Date(year, month, 1);
   const days = new Date(year, month + 1, 0).getDate();
-  const previous = new Date(year, month, 0).getDate();
   return Array.from({ length: 42 }, (_, index) => {
-    const offset = index - first.getDay() + 1;
-    if (offset < 1) return { day: previous + offset, outside: true };
-    if (offset > days) return { day: offset - days, outside: true };
-    return { day: offset, outside: false };
+    const date = new Date(year, month, index - first.getDay() + 1);
+    return { day: date.getDate(), iso: toLocalIso(date), outside: date.getMonth() !== month };
   });
 }
 
 function SchedulePage({ data, setData, notify }) {
-  const today = new Date();
-  const [selectedDate, setSelectedDate] = useState(today.toISOString().slice(0, 10));
+  const todayIso = getTodayIso();
+  const [monthKey, setMonthKey] = useState(() => getMonthKey(todayIso));
+  const [selectedDate, setSelectedDate] = useState(todayIso);
   const [title, setTitle] = useState('');
   const [time, setTime] = useState('09:00');
   const [reminder, setReminder] = useState('提前15分钟');
-  const days = useMemo(() => buildMonthDays(today.getFullYear(), today.getMonth()), []);
+  const [year, month] = monthKey.split('-').map(Number);
+  const days = useMemo(() => buildMonthDays(year, month - 1), [year, month]);
+  const moveMonth = (delta) => setMonthKey(getMonthKey(new Date(year, month - 1 + delta, 1)));
   const addEvent = (event) => {
     event.preventDefault();
     if (!title.trim()) return;
     setData((current) => ({ ...current, events: [...current.events, { id: Date.now(), title: title.trim(), date: selectedDate, time, reminder }] }));
     setTitle(''); notify('日程已添加');
   };
-  const upcoming = [...data.events].sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+  const sortedEvents = [...data.events].sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+  const upcoming = sortedEvents.filter((item) => item.date >= todayIso);
+  const past = sortedEvents.filter((item) => item.date < todayIso).reverse();
+  const renderEvent = (item) => <div className="event-card" key={item.id}><div className="event-date"><strong>{Number(item.date.slice(8))}</strong><span>{Number(item.date.slice(5, 7))}月</span></div><div><strong>{item.title}</strong><span>{item.time} · {item.reminder}</span></div></div>;
   return (
     <section className="page schedule-page">
-      <PageHeader title="日程安排" icon={CalendarDays} action={<strong className="date-accent">{today.getFullYear()}年{today.getMonth() + 1}月</strong>} />
+      <PageHeader title="日程安排" icon={CalendarDays} action={<strong className="date-accent">{year}年{month}月</strong>} />
       <div className="calendar-layout">
         <div className="calendar panel">
-          <h2><CalendarDays size={21} />{today.getFullYear()}年{today.getMonth() + 1}月</h2>
+          <h2><button type="button" className="icon-button" onClick={() => moveMonth(-1)} aria-label="上一个月"><ChevronLeft size={18} /></button><CalendarDays size={21} />{year}年{month}月<button type="button" className="icon-button" onClick={() => moveMonth(1)} aria-label="下一个月"><ChevronRight size={18} /></button></h2>
           <div className="weekdays">{'日一二三四五六'.split('').map((day) => <span key={day}>{day}</span>)}</div>
           <div className="days">{days.map((item, index) => {
-            const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(item.day).padStart(2, '0')}`;
-            const isSelected = !item.outside && iso === selectedDate;
-            return <button key={`${item.day}-${index}`} disabled={item.outside} className={`${item.outside ? 'outside' : ''} ${isSelected ? 'selected' : ''}`} onClick={() => setSelectedDate(iso)}>{item.day}</button>;
+            const isSelected = item.iso === selectedDate;
+            return <button key={`${item.iso}-${index}`} disabled={item.outside} className={`${item.outside ? 'outside' : ''} ${isSelected ? 'selected' : ''}`} onClick={() => setSelectedDate(item.iso)}>{item.day}</button>;
           })}</div>
         </div>
         <form className="schedule-form panel" onSubmit={addEvent}>
@@ -350,7 +435,8 @@ function SchedulePage({ data, setData, notify }) {
         </form>
       </div>
       <h2 className="section-title">即将到来</h2>
-      <div className="upcoming-list">{upcoming.map((item) => <div className="event-card" key={item.id}><div className="event-date"><strong>{Number(item.date.slice(8))}</strong><span>{Number(item.date.slice(5, 7))}月</span></div><div><strong>{item.title}</strong><span>{item.time} · {item.reminder}</span></div></div>)}</div>
+      <div className="upcoming-list">{upcoming.length ? upcoming.map(renderEvent) : <p className="module-empty">没有即将到来的日程</p>}</div>
+      {past.length ? <><h2 className="section-title">已过去</h2><div className="upcoming-list past-events">{past.map(renderEvent)}</div></> : null}
     </section>
   );
 }
@@ -358,31 +444,40 @@ function SchedulePage({ data, setData, notify }) {
 function FitnessPage({ data, setData, notify }) {
   const [type, setType] = useState('饮食');
   const [date, setDate] = useState(getTodayIso);
-  const [value, setValue] = useState('');
+  const [amount, setAmount] = useState('');
+  const [unit, setUnit] = useState(getDefaultFitnessUnit('饮食'));
   const [note, setNote] = useState('');
   const [editing, setEditing] = useState(null);
   const emoji = { 饮食: '🍜', 运动: '🏃', 饮水: '💧', 体重: '⚖️' };
+  const summary = getFitnessSummary(data.fitnessEntries);
   const addEntry = (event) => {
     event.preventDefault();
-    if (!value.trim()) return;
-    const entry = { id: Date.now(), type, date, value: value.trim(), note: note.trim() };
+    const entry = createFitnessEntry({ type, date, amount, unit, note }, Date.now());
+    if (!entry) return;
     setData((current) => ({ ...current, fitnessEntries: [entry, ...current.fitnessEntries] }));
-    setValue(''); setNote(''); notify('减脂记录已保存');
+    setAmount(''); setNote(''); notify('减脂记录已保存');
   };
   const saveEdit = (event) => {
     event.preventDefault();
-    if (!editing.value.trim()) return;
-    setData((current) => ({ ...current, fitnessEntries: current.fitnessEntries.map((item) => item.id === editing.id ? { ...editing, value: editing.value.trim(), note: editing.note.trim() } : item) }));
+    const entry = createFitnessEntry(editing, editing.id);
+    if (!entry) return;
+    setData((current) => ({ ...current, fitnessEntries: current.fitnessEntries.map((item) => item.id === editing.id ? entry : item) }));
     setEditing(null); notify('减脂记录已更新');
   };
   const remove = (id) => setData((current) => ({ ...current, fitnessEntries: current.fitnessEntries.filter((item) => item.id !== id) }));
   return (
     <section className="page">
       <PageHeader title="减脂记录" icon={Dumbbell} />
+      <div className="fitness-summary panel">
+        <div><span>近 7 天摄入</span><strong>{summary.calories.toFixed(0)} 千卡</strong></div>
+        <div><span>近 7 天运动</span><strong>{summary.exerciseMinutes.toFixed(0)} 分钟</strong></div>
+        <div><span>近 7 天饮水</span><strong>{summary.waterLiters.toFixed(1)} 升</strong></div>
+        <div><span>最新体重</span><strong>{summary.latestWeight === null ? '暂无' : `${summary.latestWeight} 千克`}</strong><small>{summary.weightDelta === null ? '暂无上一条记录' : `较上一条 ${summary.weightDelta > 0 ? '+' : ''}${summary.weightDelta.toFixed(1)} 千克`}</small></div>
+      </div>
       <form className="entry-form panel fitness-form" onSubmit={addEntry}>
-        <label><span>记录类型</span><select value={type} onChange={(event) => setType(event.target.value)} aria-label="减脂记录类型"><option>饮食</option><option>运动</option><option>饮水</option><option>体重</option></select></label>
+        <label><span>记录类型</span><select value={type} onChange={(event) => { const nextType = event.target.value; setType(nextType); setUnit(getDefaultFitnessUnit(nextType)); }} aria-label="减脂记录类型"><option>饮食</option><option>运动</option><option>饮水</option><option>体重</option></select></label>
         <label><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="减脂记录日期" required /></label>
-        <label><span>数值</span><input value={value} onChange={(event) => setValue(event.target.value)} placeholder="例如：350 千卡、45 分钟" aria-label="减脂记录数值" required /></label>
+        <label><span>数值</span><div className="value-with-unit"><input type="number" min="0" step="0.1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" aria-label="减脂记录数值" required /><select value={unit} onChange={(event) => setUnit(event.target.value)} aria-label="减脂记录单位">{FITNESS_UNITS[type].map((option) => <option key={option}>{option}</option>)}</select></div></label>
         <label><span>备注</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="可选" aria-label="减脂记录备注" /></label>
         <button className="primary-button wide" type="submit"><Plus size={20} />保存记录</button>
       </form>
@@ -390,13 +485,13 @@ function FitnessPage({ data, setData, notify }) {
       <div className="module-record-list panel">
         {data.fitnessEntries.length ? data.fitnessEntries.map((item) => editing?.id === item.id ? (
           <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
-            <label><span>记录类型</span><select value={editing.type} onChange={(event) => setEditing({ ...editing, type: event.target.value })} aria-label="编辑减脂记录类型"><option>饮食</option><option>运动</option><option>饮水</option><option>体重</option></select></label>
+            <label><span>记录类型</span><select value={editing.type} onChange={(event) => { const nextType = event.target.value; setEditing({ ...editing, type: nextType, unit: getDefaultFitnessUnit(nextType) }); }} aria-label="编辑减脂记录类型"><option>饮食</option><option>运动</option><option>饮水</option><option>体重</option></select></label>
             <label><span>日期</span><input type="date" value={editing.date} onChange={(event) => setEditing({ ...editing, date: event.target.value })} aria-label="编辑减脂记录日期" required /></label>
-            <label><span>数值</span><input value={editing.value} onChange={(event) => setEditing({ ...editing, value: event.target.value })} aria-label="编辑减脂记录数值" required /></label>
+            <label><span>数值</span><div className="value-with-unit"><input type="number" min="0" step="0.1" value={editing.amount} onChange={(event) => setEditing({ ...editing, amount: event.target.value })} aria-label="编辑减脂记录数值" required /><select value={editing.unit} onChange={(event) => setEditing({ ...editing, unit: event.target.value })} aria-label="编辑减脂记录单位">{FITNESS_UNITS[editing.type].map((option) => <option key={option}>{option}</option>)}</select></div></label>
             <label><span>备注</span><input value={editing.note} onChange={(event) => setEditing({ ...editing, note: event.target.value })} aria-label="编辑减脂记录备注" /></label>
             <EditActions onCancel={() => setEditing(null)} />
           </form>
-        ) : <ModuleRecord key={item.id} icon={emoji[item.type] ?? '📝'} title={item.type} detail={`${formatDate(item.date)}${item.note ? ` · ${item.note}` : ''}`} value={item.value} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有减脂记录</p>}
+        ) : <ModuleRecord key={item.id} icon={emoji[item.type] ?? '📝'} title={item.type} detail={`${formatDate(item.date)}${item.note ? ` · ${item.note}` : ''}`} value={formatFitnessValue(item)} onEdit={() => setEditing({ id: item.id, ...getFitnessDraft(item) })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有减脂记录</p>}
       </div>
     </section>
   );
@@ -405,13 +500,14 @@ function FitnessPage({ data, setData, notify }) {
 function KeepsakesPage({ data, setData, notify }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(getTodayIso);
+  const [repeatYearly, setRepeatYearly] = useState(false);
   const [editing, setEditing] = useState(null);
   const addKeepsake = (event) => {
     event.preventDefault();
     if (!title.trim()) return;
-    const keepsake = { id: Date.now(), title: title.trim(), date };
+    const keepsake = { id: Date.now(), title: title.trim(), date, repeatYearly };
     setData((current) => ({ ...current, keepsakes: [keepsake, ...current.keepsakes] }));
-    setTitle(''); notify('纪念日已保存');
+    setTitle(''); setRepeatYearly(false); notify('纪念日已保存');
   };
   const saveEdit = (event) => {
     event.preventDefault();
@@ -426,6 +522,7 @@ function KeepsakesPage({ data, setData, notify }) {
       <form className="entry-form panel keepsake-form" onSubmit={addKeepsake}>
         <label><span>纪念日名称</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：入职纪念日" aria-label="纪念日名称" required /></label>
         <label><span>日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="纪念日日期" required /></label>
+        <label className="checkbox-label"><input type="checkbox" checked={repeatYearly} onChange={(event) => setRepeatYearly(event.target.checked)} />每年重复</label>
         <button className="primary-button wide" type="submit"><Plus size={20} />新增纪念日</button>
       </form>
       <h2 className="section-title">我的纪念日</h2>
@@ -434,9 +531,10 @@ function KeepsakesPage({ data, setData, notify }) {
           <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
             <label><span>纪念日名称</span><input value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} aria-label="编辑纪念日名称" required /></label>
             <label><span>日期</span><input type="date" value={editing.date} onChange={(event) => setEditing({ ...editing, date: event.target.value })} aria-label="编辑纪念日日期" required /></label>
+            <label className="checkbox-label"><input type="checkbox" checked={Boolean(editing.repeatYearly)} onChange={(event) => setEditing({ ...editing, repeatYearly: event.target.checked })} />每年重复</label>
             <EditActions onCancel={() => setEditing(null)} />
           </form>
-        ) : <ModuleRecord key={item.id} icon="🎁" title={item.title} detail={formatDate(item.date)} value={formatCountdown(item.date)} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有纪念日</p>}
+        ) : <ModuleRecord key={item.id} icon="🎁" title={item.title} detail={`${formatDate(item.date)}${item.repeatYearly ? ' · 每年重复' : ''}`} value={item.repeatYearly ? formatCountdown(getNextAnnualDate(item.date)) : formatCountdown(item.date)} onEdit={() => setEditing({ repeatYearly: false, ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有纪念日</p>}
       </div>
     </section>
   );
@@ -447,6 +545,15 @@ function DiaryPage({ data, setData, notify }) {
   const [mood, setMood] = useState('平静');
   const [content, setContent] = useState('');
   const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+  const [filterMood, setFilterMood] = useState('全部');
+  const filteredEntries = useMemo(() => data.diaryEntries.filter((item) => {
+    const keyword = search.trim().toLowerCase();
+    return (!keyword || item.content.toLowerCase().includes(keyword))
+      && (!filterDate || item.date === filterDate)
+      && (filterMood === '全部' || item.mood === filterMood);
+  }), [data.diaryEntries, search, filterDate, filterMood]);
   const addDiary = (event) => {
     event.preventDefault();
     if (!content.trim()) return;
@@ -470,16 +577,22 @@ function DiaryPage({ data, setData, notify }) {
         <label className="wide"><span>日记内容</span><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="记录今天发生的事情" aria-label="日记内容" required /></label>
         <button className="primary-button wide" type="submit"><Plus size={20} />保存日记</button>
       </form>
+      <div className="record-filters diary-filters">
+        <input className="filter-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索日记内容" aria-label="搜索日记内容" />
+        <input type="date" value={filterDate} onChange={(event) => setFilterDate(event.target.value)} aria-label="按日期筛选日记" />
+        <select value={filterMood} onChange={(event) => setFilterMood(event.target.value)} aria-label="按心情筛选日记"><option>全部</option><option>开心</option><option>平静</option><option>充实</option><option>疲惫</option><option>难过</option></select>
+        {(search || filterDate || filterMood !== '全部') && <button type="button" className="secondary-button" onClick={() => { setSearch(''); setFilterDate(''); setFilterMood('全部'); }}><X size={18} />清空筛选</button>}
+      </div>
       <h2 className="section-title">日记记录</h2>
       <div className="module-record-list panel">
-        {data.diaryEntries.length ? data.diaryEntries.map((item) => editing?.id === item.id ? (
+        {filteredEntries.length ? filteredEntries.map((item) => editing?.id === item.id ? (
           <form className="record-edit-row" key={item.id} onSubmit={saveEdit}>
             <label><span>日期</span><input type="date" value={editing.date} onChange={(event) => setEditing({ ...editing, date: event.target.value })} aria-label="编辑日记日期" required /></label>
             <label><span>心情</span><select value={editing.mood} onChange={(event) => setEditing({ ...editing, mood: event.target.value })} aria-label="编辑日记心情"><option>开心</option><option>平静</option><option>充实</option><option>疲惫</option><option>难过</option></select></label>
             <label className="wide"><span>日记内容</span><textarea value={editing.content} onChange={(event) => setEditing({ ...editing, content: event.target.value })} aria-label="编辑日记内容" required /></label>
             <EditActions onCancel={() => setEditing(null)} />
           </form>
-        ) : <ModuleRecord key={item.id} icon="📖" title={formatDate(item.date)} detail={item.content} value={item.mood} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">还没有日记</p>}
+        ) : <ModuleRecord key={item.id} icon="📖" title={formatDate(item.date)} detail={item.content} value={item.mood} onEdit={() => setEditing({ ...item })} onRemove={() => remove(item.id)} />) : <p className="module-empty">{data.diaryEntries.length ? '没有符合条件的日记' : '还没有日记'}</p>}
       </div>
     </section>
   );
@@ -632,9 +745,11 @@ function createExcelSheet(columns, rows) {
 
 function SettingsPage({ data, setData, notify, installApp, canInstall, isInstalled, account, openLogin }) {
   const backupInputRef = useRef(null);
+  const [backupPreview, setBackupPreview] = useState(null);
   const updateProfile = (patch) => setData((current) => ({ ...current, profile: { ...current.profile, ...patch } }));
   const exportBackup = () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const backup = { version: 2, exportedAt: new Date().toISOString(), data };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     downloadBlob(blob, `Kitty工作台完整备份-${getTodayIso()}.json`);
     notify('完整数据备份已导出');
   };
@@ -657,8 +772,8 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
       { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '时间', key: 'time', width: 12 }, { header: '内容', key: 'title', width: 32 }, { header: '提醒', key: 'reminder', width: 18 },
     ], data.events.map((item) => ({ date: toExcelDate(item.date), time: item.time, title: item.title, reminder: item.reminder })));
     addSheet('纪念', [
-      { header: '名称', key: 'title', width: 32 }, { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '倒计时', key: 'countdown', width: 18 },
-    ], data.keepsakes.map((item) => ({ title: item.title, date: toExcelDate(item.date), countdown: formatCountdown(item.date) })));
+      { header: '名称', key: 'title', width: 32 }, { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '每年重复', key: 'repeatYearly', width: 14 }, { header: '倒计时', key: 'countdown', width: 18 },
+    ], data.keepsakes.map((item) => ({ title: item.title, date: toExcelDate(item.date), repeatYearly: item.repeatYearly ? '是' : '否', countdown: formatCountdown(item.repeatYearly ? getNextAnnualDate(item.date) : item.date) })));
     addSheet('日记', [
       { header: '日期', key: 'date', width: 14, type: Date, format: 'yyyy-mm-dd' }, { header: '心情', key: 'mood', width: 14 }, { header: '日记内容', key: 'content', width: 54 },
     ], data.diaryEntries.map((item) => ({ date: toExcelDate(item.date), mood: item.mood, content: item.content })));
@@ -676,18 +791,24 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const restored = JSON.parse(await file.text());
+      const parsed = JSON.parse(await file.text());
+      const restored = parsed?.version && parsed.data ? parsed.data : parsed;
+      const version = parsed?.version && parsed.data ? parsed.version : 1;
       const listKeys = ['tasks', 'records', 'events', 'fitnessEntries', 'keepsakes', 'diaryEntries', 'cycleEntries'];
       const isValid = restored && typeof restored === 'object' && restored.profile && listKeys.every((key) => Array.isArray(restored[key]));
       if (!isValid) throw new Error('invalid backup');
-      if (!window.confirm('恢复备份会覆盖当前工作台的全部数据，确定继续吗？')) return;
-      setData({ ...DEFAULT_DATA, ...restored, profile: { ...DEFAULT_DATA.profile, ...restored.profile } });
-      notify('完整数据已恢复');
+      setBackupPreview({ version, exportedAt: parsed?.exportedAt || null, data: restored });
     } catch {
       notify('备份文件无法识别');
     } finally {
       event.target.value = '';
     }
+  };
+  const confirmRestore = () => {
+    if (!backupPreview) return;
+    setData({ ...DEFAULT_DATA, ...backupPreview.data, profile: { ...DEFAULT_DATA.profile, ...backupPreview.data.profile } });
+    setBackupPreview(null);
+    notify('完整数据已恢复');
   };
   return (
     <section className="page">
@@ -711,6 +832,13 @@ function SettingsPage({ data, setData, notify, installApp, canInstall, isInstall
         <button className="settings-button" onClick={exportBackup}><span className="setting-icon tone-mint"><CloudDownload size={21} /></span><span><strong>完整数据备份</strong><small>导出 JSON 文件，用于保留工作台全部数据</small></span><ChevronRight size={20} /></button>
         <button className="settings-button" onClick={() => backupInputRef.current?.click()}><span className="setting-icon tone-yellow"><Upload size={21} /></span><span><strong>从备份恢复</strong><small>选择完整备份文件，恢复工作台全部数据</small></span><ChevronRight size={20} /></button>
         <input ref={backupInputRef} className="visually-hidden" type="file" accept="application/json,.json" onChange={restoreBackup} aria-label="选择完整备份文件" />
+        {backupPreview && <div className="backup-preview">
+          <strong>恢复预览</strong>
+          <span>备份版本：v{backupPreview.version}</span>
+          <span>导出时间：{backupPreview.exportedAt ? new Date(backupPreview.exportedAt).toLocaleString('zh-CN') : '旧版备份，未记录'}</span>
+          <span>待办 {backupPreview.data.tasks.length} 条 · 账目 {backupPreview.data.records.length} 条 · 日记 {backupPreview.data.diaryEntries.length} 条 · 经期 {backupPreview.data.cycleEntries.length} 条</span>
+          <div className="backup-preview-actions"><button type="button" className="primary-button" onClick={confirmRestore}><Check size={18} />确认恢复</button><button type="button" className="secondary-button" onClick={() => setBackupPreview(null)}><X size={18} />取消恢复</button></div>
+        </div>}
         <div className="settings-button static"><span className="setting-icon tone-gray"><Info size={21} /></span><span><strong>关于</strong><small>Hello Kitty 工作台 v1.0</small></span></div>
       </section>
       <p className="made-with">Made with <span>💖</span> for {data.profile.nickname}<br />Hello Kitty © Sanrio</p>

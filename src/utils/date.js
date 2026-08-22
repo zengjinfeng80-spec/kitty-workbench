@@ -14,6 +14,11 @@ export function getTodayIso() {
   return toLocalIso(new Date());
 }
 
+export function getMonthKey(value = new Date()) {
+  const date = typeof value === 'string' ? parseLocalDate(value) : value;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export function parseLocalDate(value) {
   return new Date(`${value}T00:00:00`);
 }
@@ -46,6 +51,34 @@ export function getCycleStatus(entry, now = new Date()) {
   if (entry.startDate > today) return '尚未开始';
   if (!entry.endDate) return '进行中 · 未填写结束日期';
   return today <= entry.endDate ? '经期中' : '已结束';
+}
+
+export function getRecordIsoDate(record, now = new Date()) {
+  if (record?.date) return record.date;
+  if (record?.time === '刚刚') return toLocalIso(now);
+  if (record?.time?.startsWith('今天')) return toLocalIso(now);
+  if (record?.time?.startsWith('昨天')) return shiftIsoDate(toLocalIso(now), -1);
+  return null;
+}
+
+export function getNextAnnualDate(value, now = new Date()) {
+  if (!value) return null;
+  const source = parseLocalDate(value);
+  const currentYear = now.getFullYear();
+  const daysInMonth = new Date(currentYear, source.getMonth() + 1, 0).getDate();
+  const occurrence = new Date(currentYear, source.getMonth(), Math.min(source.getDate(), daysInMonth));
+  if (occurrence < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+    const nextYearDays = new Date(currentYear + 1, source.getMonth() + 1, 0).getDate();
+    return toLocalIso(new Date(currentYear + 1, source.getMonth(), Math.min(source.getDate(), nextYearDays)));
+  }
+  return toLocalIso(occurrence);
+}
+
+export function getReminderMinutes(value) {
+  if (value === '提前15分钟') return 15;
+  if (value === '提前1小时') return 60;
+  if (value === '提前1天') return 24 * 60;
+  return null;
 }
 
 export function getCurrentCycle(entries = [], now = new Date()) {
